@@ -27,12 +27,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	statsapi "k8s.io/kubernetes/pkg/kubelet/apis/stats/v1alpha1"
 	"k8s.io/kubernetes/pkg/kubelet/cadvisor"
+	"k8s.io/kubernetes/pkg/kubelet/network"
 )
-
-// defaultNetworkInterfaceName is used for collectng network stats.
-// This logic relies on knowledge of the container runtime implementation and
-// is not reliable.
-const defaultNetworkInterfaceName = "eth0"
 
 func cadvisorInfoToCPUandMemoryStats(info *cadvisorapiv2.ContainerInfo) (*statsapi.CPUStats, *statsapi.MemoryStats) {
 	cstat, found := latestContainerStats(info)
@@ -157,7 +153,7 @@ func cadvisorInfoToNetworkStats(name string, info *cadvisorapiv2.ContainerInfo) 
 			TxErrors: &inter.TxErrors,
 		}
 
-		if inter.Name == defaultNetworkInterfaceName {
+		if inter.Name == network.DefaultInterfaceName {
 			iStats.InterfaceStats = iStat
 		}
 
@@ -242,17 +238,11 @@ func isMemoryUnlimited(v uint64) bool {
 
 // getCgroupInfo returns the information of the container with the specified
 // containerName from cadvisor.
-func getCgroupInfo(cadvisor cadvisor.Interface, containerName string, updateStats bool) (*cadvisorapiv2.ContainerInfo, error) {
-	var maxAge *time.Duration
-	if updateStats {
-		age := 0 * time.Second
-		maxAge = &age
-	}
+func getCgroupInfo(cadvisor cadvisor.Interface, containerName string) (*cadvisorapiv2.ContainerInfo, error) {
 	infoMap, err := cadvisor.ContainerInfoV2(containerName, cadvisorapiv2.RequestOptions{
 		IdType:    cadvisorapiv2.TypeName,
 		Count:     2, // 2 samples are needed to compute "instantaneous" CPU
 		Recursive: false,
-		MaxAge:    maxAge,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get container info for %q: %v", containerName, err)
@@ -266,8 +256,8 @@ func getCgroupInfo(cadvisor cadvisor.Interface, containerName string, updateStat
 
 // getCgroupStats returns the latest stats of the container having the
 // specified containerName from cadvisor.
-func getCgroupStats(cadvisor cadvisor.Interface, containerName string, updateStats bool) (*cadvisorapiv2.ContainerStats, error) {
-	info, err := getCgroupInfo(cadvisor, containerName, updateStats)
+func getCgroupStats(cadvisor cadvisor.Interface, containerName string) (*cadvisorapiv2.ContainerStats, error) {
+	info, err := getCgroupInfo(cadvisor, containerName)
 	if err != nil {
 		return nil, err
 	}
@@ -302,12 +292,4 @@ func buildRootfsStats(cstat *cadvisorapiv2.ContainerStats, imageFs *cadvisorapiv
 		InodesFree:     imageFs.InodesFree,
 		Inodes:         imageFs.Inodes,
 	}
-}
-
-func getUint64Value(value *uint64) uint64 {
-	if value == nil {
-		return 0
-	}
-
-	return *value
 }

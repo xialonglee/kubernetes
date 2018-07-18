@@ -19,12 +19,12 @@ package auth
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
-	"k8s.io/kubernetes/pkg/kubectl/genericclioptions"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -48,7 +48,8 @@ type CanIOptions struct {
 	Subresource    string
 	ResourceName   string
 
-	genericclioptions.IOStreams
+	Out io.Writer
+	Err io.Writer
 }
 
 var (
@@ -80,14 +81,14 @@ var (
 		kubectl auth can-i get /logs/`)
 )
 
-func NewCmdCanI(f cmdutil.Factory, streams genericclioptions.IOStreams) *cobra.Command {
+func NewCmdCanI(f cmdutil.Factory, out, err io.Writer) *cobra.Command {
 	o := &CanIOptions{
-		IOStreams: streams,
+		Out: out,
+		Err: err,
 	}
 
 	cmd := &cobra.Command{
-		Use: "can-i VERB [TYPE | TYPE/NAME | NONRESOURCEURL]",
-		DisableFlagsInUseLine: true,
+		Use:     "can-i VERB [TYPE | TYPE/NAME | NONRESOURCEURL]",
 		Short:   "Check whether an action is allowed",
 		Long:    canILong,
 		Example: canIExample,
@@ -97,7 +98,7 @@ func NewCmdCanI(f cmdutil.Factory, streams genericclioptions.IOStreams) *cobra.C
 
 			allowed, err := o.RunAccessCheck()
 			if err == nil {
-				if !allowed {
+				if o.Quiet && !allowed {
 					os.Exit(1)
 				}
 			}
@@ -108,7 +109,7 @@ func NewCmdCanI(f cmdutil.Factory, streams genericclioptions.IOStreams) *cobra.C
 
 	cmd.Flags().BoolVar(&o.AllNamespaces, "all-namespaces", o.AllNamespaces, "If true, check the specified action in all namespaces.")
 	cmd.Flags().BoolVarP(&o.Quiet, "quiet", "q", o.Quiet, "If true, suppress output and just return the exit code.")
-	cmd.Flags().StringVar(&o.Subresource, "subresource", o.Subresource, "SubResource such as pod/log or deployment/scale")
+	cmd.Flags().StringVar(&o.Subresource, "subresource", "", "SubResource such as pod/log or deployment/scale")
 	return cmd
 }
 
@@ -125,10 +126,7 @@ func (o *CanIOptions) Complete(f cmdutil.Factory, args []string) error {
 			break
 		}
 		resourceTokens := strings.SplitN(args[1], "/", 2)
-		restMapper, err := f.ToRESTMapper()
-		if err != nil {
-			return err
-		}
+		restMapper, _ := f.Object()
 		o.Resource = o.resourceFor(restMapper, resourceTokens[0])
 		if len(resourceTokens) > 1 {
 			o.ResourceName = resourceTokens[1]
@@ -146,7 +144,7 @@ func (o *CanIOptions) Complete(f cmdutil.Factory, args []string) error {
 
 	o.Namespace = ""
 	if !o.AllNamespaces {
-		o.Namespace, _, err = f.ToRawKubeConfigLoader().Namespace()
+		o.Namespace, _, err = f.DefaultNamespace()
 		if err != nil {
 			return err
 		}
@@ -230,9 +228,9 @@ func (o *CanIOptions) resourceFor(mapper meta.RESTMapper, resourceArg string) sc
 		gvr, err = mapper.ResourceFor(groupResource.WithVersion(""))
 		if err != nil {
 			if len(groupResource.Group) == 0 {
-				fmt.Fprintf(o.ErrOut, "Warning: the server doesn't have a resource type '%s'\n", groupResource.Resource)
+				fmt.Fprintf(o.Err, "Warning: the server doesn't have a resource type '%s'\n", groupResource.Resource)
 			} else {
-				fmt.Fprintf(o.ErrOut, "Warning: the server doesn't have a resource type '%s' in group '%s'\n", groupResource.Resource, groupResource.Group)
+				fmt.Fprintf(o.Err, "Warning: the server doesn't have a resource type '%s' in group '%s'\n", groupResource.Resource, groupResource.Group)
 			}
 			return schema.GroupVersionResource{Resource: resourceArg}
 		}

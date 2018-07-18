@@ -19,7 +19,7 @@ package apimachinery
 import (
 	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
-	"k8s.io/apiextensions-apiserver/test/integration/fixtures"
+	"k8s.io/apiextensions-apiserver/test/integration/testserver"
 	utilversion "k8s.io/kubernetes/pkg/util/version"
 	"k8s.io/kubernetes/test/e2e/framework"
 
@@ -52,16 +52,16 @@ var _ = SIGDescribe("CustomResourceDefinition resources", func() {
 				framework.Failf("failed to initialize apiExtensionClient: %v", err)
 			}
 
-			randomDefinition := fixtures.NewRandomNameCustomResourceDefinition(v1beta1.ClusterScoped)
+			randomDefinition := testserver.NewRandomNameCustomResourceDefinition(v1beta1.ClusterScoped)
 
 			//create CRD and waits for the resource to be recognized and available.
-			randomDefinition, err = fixtures.CreateNewCustomResourceDefinition(randomDefinition, apiExtensionClient, f.DynamicClient)
+			_, err = testserver.CreateNewCustomResourceDefinition(randomDefinition, apiExtensionClient, f.ClientPool)
 			if err != nil {
 				framework.Failf("failed to create CustomResourceDefinition: %v", err)
 			}
 
 			defer func() {
-				err = fixtures.DeleteCustomResourceDefinition(randomDefinition, apiExtensionClient)
+				err = testserver.DeleteCustomResourceDefinition(randomDefinition, apiExtensionClient)
 				if err != nil {
 					framework.Failf("failed to delete CustomResourceDefinition: %v", err)
 				}

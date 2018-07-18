@@ -20,11 +20,10 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	"path/filepath"
+	"path"
 	libstrings "strings"
 
-	"github.com/Azure/azure-sdk-for-go/services/storage/mgmt/2017-10-01/storage"
-
+	storage "github.com/Azure/azure-sdk-for-go/arm/storage"
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -36,9 +35,9 @@ import (
 )
 
 const (
-	defaultStorageAccountType       = storage.StandardLRS
-	defaultAzureDiskKind            = v1.AzureSharedBlobDisk
-	defaultAzureDataDiskCachingMode = v1.AzureDataDiskCachingNone
+	defaultFSType             = "ext4"
+	defaultStorageAccountType = storage.StandardLRS
+	defaultAzureDiskKind      = v1.AzureSharedBlobDisk
 )
 
 type dataDisk struct {
@@ -46,7 +45,6 @@ type dataDisk struct {
 	volumeName string
 	diskName   string
 	podUID     types.UID
-	plugin     *azureDataDiskPlugin
 }
 
 var (
@@ -78,12 +76,12 @@ func makeGlobalPDPath(host volume.VolumeHost, diskUri string, isManaged bool) (s
 	}
 	// "{m for managed b for blob}{hashed diskUri or DiskId depending on disk kind }"
 	diskName := fmt.Sprintf(uniqueDiskNameTemplate, prefix, hashedDiskUri)
-	pdPath := filepath.Join(host.GetPluginDir(azureDataDiskPluginName), mount.MountsInGlobalPDPath, diskName)
+	pdPath := path.Join(host.GetPluginDir(azureDataDiskPluginName), mount.MountsInGlobalPDPath, diskName)
 
 	return pdPath, nil
 }
 
-func makeDataDisk(volumeName string, podUID types.UID, diskName string, host volume.VolumeHost, plugin *azureDataDiskPlugin) *dataDisk {
+func makeDataDisk(volumeName string, podUID types.UID, diskName string, host volume.VolumeHost) *dataDisk {
 	var metricProvider volume.MetricsProvider
 	if podUID != "" {
 		metricProvider = volume.NewMetricsStatFS(getPath(podUID, volumeName, host))
@@ -94,20 +92,27 @@ func makeDataDisk(volumeName string, podUID types.UID, diskName string, host vol
 		volumeName:      volumeName,
 		diskName:        diskName,
 		podUID:          podUID,
-		plugin:          plugin,
 	}
 }
 
-func getVolumeSource(spec *volume.Spec) (volumeSource *v1.AzureDiskVolumeSource, readOnly bool, err error) {
+func getVolumeSource(spec *volume.Spec) (*v1.AzureDiskVolumeSource, error) {
 	if spec.Volume != nil && spec.Volume.AzureDisk != nil {
-		return spec.Volume.AzureDisk, spec.Volume.AzureDisk.ReadOnly != nil && *spec.Volume.AzureDisk.ReadOnly, nil
+		return spec.Volume.AzureDisk, nil
 	}
 
 	if spec.PersistentVolume != nil && spec.PersistentVolume.Spec.AzureDisk != nil {
-		return spec.PersistentVolume.Spec.AzureDisk, spec.ReadOnly, nil
+		return spec.PersistentVolume.Spec.AzureDisk, nil
 	}
 
-	return nil, false, fmt.Errorf("azureDisk - Spec does not reference an Azure disk volume type")
+	return nil, fmt.Errorf("azureDisk - Spec does not reference an Azure disk volume type")
+}
+
+func normalizeFsType(fsType string) string {
+	if fsType == "" {
+		return defaultFSType
+	}
+
+	return fsType
 }
 
 func normalizeKind(kind string) (v1.AzureDataDiskKind, error) {
@@ -136,7 +141,7 @@ func normalizeStorageAccountType(storageAccountType string) (storage.SkuName, er
 
 func normalizeCachingMode(cachingMode v1.AzureDataDiskCachingMode) (v1.AzureDataDiskCachingMode, error) {
 	if cachingMode == "" {
-		return defaultAzureDataDiskCachingMode, nil
+		return v1.AzureDataDiskCachingReadWrite, nil
 	}
 
 	if !supportedCachingModes.Has(string(cachingMode)) {

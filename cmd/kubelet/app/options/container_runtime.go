@@ -27,13 +27,16 @@ import (
 
 const (
 	// When these values are updated, also update test/e2e/framework/util.go
-	defaultPodSandboxImageName    = "k8s.gcr.io/pause"
-	defaultPodSandboxImageVersion = "3.1"
+	defaultPodSandboxImageName    = "gcr.io/google_containers/pause"
+	defaultPodSandboxImageVersion = "3.0"
+	// From pkg/kubelet/rkt/rkt.go to avoid circular import
+	defaultRktAPIServiceEndpoint = "localhost:15441"
 )
 
 var (
 	defaultPodSandboxImage = defaultPodSandboxImageName +
-		":" + defaultPodSandboxImageVersion
+		"-" + runtime.GOARCH + ":" +
+		defaultPodSandboxImageVersion
 )
 
 // NewContainerRuntimeOptions will create a new ContainerRuntimeOptions with
@@ -45,17 +48,13 @@ func NewContainerRuntimeOptions() *config.ContainerRuntimeOptions {
 	}
 
 	return &config.ContainerRuntimeOptions{
-		ContainerRuntime:           kubetypes.DockerContainerRuntime,
-		RedirectContainerStreaming: false,
-		DockerEndpoint:             dockerEndpoint,
-		DockershimRootDirectory:    "/var/lib/dockershim",
-		DockerDisableSharedPID:     true,
-		PodSandboxImage:            defaultPodSandboxImage,
-		ImagePullProgressDeadline:  metav1.Duration{Duration: 1 * time.Minute},
-		ExperimentalDockershim:     false,
-
-		//Alpha feature
-		CNIBinDir:  "/opt/cni/bin",
-		CNIConfDir: "/etc/cni/net.d",
+		ContainerRuntime:          kubetypes.DockerContainerRuntime,
+		DockerEndpoint:            dockerEndpoint,
+		DockershimRootDirectory:   "/var/lib/dockershim",
+		DockerDisableSharedPID:    true,
+		PodSandboxImage:           defaultPodSandboxImage,
+		ImagePullProgressDeadline: metav1.Duration{Duration: 1 * time.Minute},
+		RktAPIEndpoint:            defaultRktAPIServiceEndpoint,
+		ExperimentalDockershim:    false,
 	}
 }

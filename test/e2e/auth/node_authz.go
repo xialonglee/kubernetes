@@ -27,7 +27,6 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/kubernetes/test/e2e/framework"
-	imageutils "k8s.io/kubernetes/test/utils/image"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -75,30 +74,8 @@ var _ = SIGDescribe("[Feature:NodeAuthorizer]", func() {
 		Expect(apierrors.IsForbidden(err)).Should(Equal(true))
 	})
 
-	It("Getting an existing secret should exit with the Forbidden error", func() {
+	It("Getting an existent secret should exit with the Forbidden error", func() {
 		_, err := c.CoreV1().Secrets(ns).Get(defaultSaSecret, metav1.GetOptions{})
-		Expect(apierrors.IsForbidden(err)).Should(Equal(true))
-	})
-
-	It("Getting a non-existent configmap should exit with the Forbidden error, not a NotFound error", func() {
-		_, err := c.CoreV1().ConfigMaps(ns).Get("foo", metav1.GetOptions{})
-		Expect(apierrors.IsForbidden(err)).Should(Equal(true))
-	})
-
-	It("Getting an existing configmap should exit with the Forbidden error", func() {
-		By("Create a configmap for testing")
-		configmap := &v1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{
-				Namespace: ns,
-				Name:      "node-auth-configmap",
-			},
-			Data: map[string]string{
-				"data": "content",
-			},
-		}
-		_, err := f.ClientSet.CoreV1().ConfigMaps(ns).Create(configmap)
-		Expect(err).NotTo(HaveOccurred())
-		_, err = c.CoreV1().ConfigMaps(ns).Get(configmap.Name, metav1.GetOptions{})
 		Expect(apierrors.IsForbidden(err)).Should(Equal(true))
 	})
 
@@ -129,7 +106,7 @@ var _ = SIGDescribe("[Feature:NodeAuthorizer]", func() {
 				Containers: []v1.Container{
 					{
 						Name:  "pause",
-						Image: imageutils.GetPauseImageName(),
+						Image: framework.GetPauseImageName(f.ClientSet),
 					},
 				},
 				NodeName: nodeName,
@@ -161,7 +138,7 @@ var _ = SIGDescribe("[Feature:NodeAuthorizer]", func() {
 		Expect(err).NotTo(HaveOccurred())
 	})
 
-	It("A node shouldn't be able to create another node", func() {
+	It("A node shouldn't be able to create an other node", func() {
 		node := &v1.Node{
 			ObjectMeta: metav1.ObjectMeta{Name: "foo"},
 			TypeMeta: metav1.TypeMeta{
@@ -174,7 +151,7 @@ var _ = SIGDescribe("[Feature:NodeAuthorizer]", func() {
 		Expect(apierrors.IsForbidden(err)).Should(Equal(true))
 	})
 
-	It("A node shouldn't be able to delete another node", func() {
+	It("A node shouldn't be able to delete an other node", func() {
 		By(fmt.Sprintf("Create node foo by user: %v", asUser))
 		err := c.CoreV1().Nodes().Delete("foo", &metav1.DeleteOptions{})
 		Expect(apierrors.IsForbidden(err)).Should(Equal(true))

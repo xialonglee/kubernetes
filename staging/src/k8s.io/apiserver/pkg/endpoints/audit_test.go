@@ -63,7 +63,6 @@ func TestAudit(t *testing.T) {
 		Other:      "bla",
 	}
 	simpleCPrimeJSON, _ := runtime.Encode(testCodec, simpleCPrime)
-	userAgent := "audit-test"
 
 	// event checks
 	noRequestBody := func(i int) eventCheck {
@@ -71,7 +70,7 @@ func TestAudit(t *testing.T) {
 			if events[i].RequestObject == nil {
 				return nil
 			}
-			return fmt.Errorf("expected RequestBody to be nil, got non-nil '%s'", events[i].RequestObject.Raw)
+			return fmt.Errorf("expected RequestBody to be nil, got non-nill '%s'", events[i].RequestObject.Raw)
 		}
 	}
 	requestBodyIs := func(i int, text string) eventCheck {
@@ -101,23 +100,13 @@ func TestAudit(t *testing.T) {
 			if events[i].ResponseObject == nil {
 				return nil
 			}
-			return fmt.Errorf("expected ResponseBody to be nil, got non-nil '%s'", events[i].ResponseObject.Raw)
+			return fmt.Errorf("expected ResponseBody to be nil, got non-nill '%s'", events[i].ResponseObject.Raw)
 		}
 	}
 	responseBodyMatches := func(i int, pattern string) eventCheck {
 		return func(events []*auditinternal.Event) error {
 			if matched, _ := regexp.Match(pattern, events[i].ResponseObject.Raw); !matched {
 				return fmt.Errorf("expected ResponseBody to match %q, but didn't: %q", pattern, string(events[i].ResponseObject.Raw))
-			}
-			return nil
-		}
-	}
-	requestUserAgentMatches := func(userAgent string) eventCheck {
-		return func(events []*auditinternal.Event) error {
-			for i := range events {
-				if events[i].UserAgent != userAgent {
-					return fmt.Errorf("expected request user agent to match %q, but got: %q", userAgent, events[i].UserAgent)
-				}
 			}
 			return nil
 		}
@@ -306,8 +295,6 @@ func TestAudit(t *testing.T) {
 			t.Errorf("[%s] error creating the request: %v", test.desc, err)
 		}
 
-		req.Header.Set("User-Agent", userAgent)
-
 		response, err := client.Do(req)
 		if err != nil {
 			t.Errorf("[%s] error: %v", test.desc, err)
@@ -338,10 +325,6 @@ func TestAudit(t *testing.T) {
 				if err != nil {
 					t.Errorf("[%s,%d] %v", test.desc, i, err)
 				}
-			}
-
-			if err := requestUserAgentMatches(userAgent)(events); err != nil {
-				t.Errorf("[%s] %v", test.desc, err)
 			}
 		}
 

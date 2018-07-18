@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
 # Copyright 2015 The Kubernetes Authors.
 #
@@ -104,8 +104,7 @@ do
           # This happens when the instance has been deleted. We can hence ignore
           # this instance.
           echo "Looks like ${instance} got deleted. Ignoring it"
-          success=1
-          break
+          continue
         fi
         output=$("${KUBECTL}" replace -f "${filename}" --namespace="${namespace}") || true
         rm "${filename}"

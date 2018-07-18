@@ -63,23 +63,13 @@ func TestParse(t *testing.T) {
 		err      error
 	}{
 		{
-			[]string{"foo", "-v=false"},
-			flags{getDefault, oldDefault, []string{"--verbose-commands=false"}},
-			nil,
-		},
-		{
-			[]string{"foo", "-v"},
-			flags{getDefault, oldDefault, []string{"--verbose-commands=true"}},
-			nil,
-		},
-		{
 			[]string{"hello", "world"},
-			flags{getDefault, oldDefault, []string{"--verbose-commands=true", "world"}},
+			flags{getDefault, oldDefault, []string{"world"}},
 			nil,
 		},
 		{
 			[]string{"hello", "--", "--venus", "--karaoke"},
-			flags{getDefault, oldDefault, []string{"--verbose-commands=true", "--venus", "--karaoke"}},
+			flags{getDefault, oldDefault, []string{"--venus", "--karaoke"}},
 			nil,
 		},
 		{
@@ -94,12 +84,12 @@ func TestParse(t *testing.T) {
 		},
 		{
 			[]string{"omg", "--get=false", "--", "ugh"},
-			flags{false, oldDefault, []string{"--verbose-commands=true", "ugh"}},
+			flags{false, oldDefault, []string{"ugh"}},
 			nil,
 		},
 		{
 			[]string{"wee", "--old=5m", "--get"},
-			flags{true, 5 * time.Minute, []string{"--verbose-commands=true"}},
+			flags{true, 5 * time.Minute, []string{}},
 			nil,
 		},
 		{
@@ -114,7 +104,7 @@ func TestParse(t *testing.T) {
 		},
 		{
 			[]string{"wut", "--", "-h"},
-			flags{getDefault, oldDefault, []string{"--verbose-commands=true", "-h"}},
+			flags{getDefault, oldDefault, []string{"-h"}},
 			nil,
 		},
 	}

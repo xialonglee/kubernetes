@@ -15,7 +15,6 @@ go_library(
         "rsa_key.go",
         "util.go",
     ],
-    importmap = "k8s.io/kubernetes/vendor/github.com/docker/libtrust",
     importpath = "github.com/docker/libtrust",
     visibility = ["//visibility:public"],
 )

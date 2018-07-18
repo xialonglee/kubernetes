@@ -20,12 +20,10 @@ import "testing"
 
 func TestPlugin(t *testing.T) {
 	tests := []struct {
-		name        string
 		plugin      *Plugin
 		expectedErr error
 	}{
 		{
-			name: "test1",
 			plugin: &Plugin{
 				Description: Description{
 					Name:      "test",
@@ -35,7 +33,6 @@ func TestPlugin(t *testing.T) {
 			},
 		},
 		{
-			name: "test2",
 			plugin: &Plugin{
 				Description: Description{
 					Name:      "test",
@@ -45,12 +42,10 @@ func TestPlugin(t *testing.T) {
 			expectedErr: ErrIncompletePlugin,
 		},
 		{
-			name:        "test3",
 			plugin:      &Plugin{},
 			expectedErr: ErrIncompletePlugin,
 		},
 		{
-			name: "test4",
 			plugin: &Plugin{
 				Description: Description{
 					Name:      "test spaces",
@@ -61,7 +56,6 @@ func TestPlugin(t *testing.T) {
 			expectedErr: ErrInvalidPluginName,
 		},
 		{
-			name: "test5",
 			plugin: &Plugin{
 				Description: Description{
 					Name:      "test",
@@ -77,7 +71,6 @@ func TestPlugin(t *testing.T) {
 			expectedErr: ErrIncompleteFlag,
 		},
 		{
-			name: "test6",
 			plugin: &Plugin{
 				Description: Description{
 					Name:      "test",
@@ -94,7 +87,6 @@ func TestPlugin(t *testing.T) {
 			expectedErr: ErrInvalidFlagName,
 		},
 		{
-			name: "test7",
 			plugin: &Plugin{
 				Description: Description{
 					Name:      "test",
@@ -112,7 +104,6 @@ func TestPlugin(t *testing.T) {
 			expectedErr: ErrInvalidFlagShorthand,
 		},
 		{
-			name: "test8",
 			plugin: &Plugin{
 				Description: Description{
 					Name:      "test",
@@ -130,7 +121,6 @@ func TestPlugin(t *testing.T) {
 			expectedErr: ErrInvalidFlagShorthand,
 		},
 		{
-			name: "test9",
 			plugin: &Plugin{
 				Description: Description{
 					Name:      "test",
@@ -170,12 +160,10 @@ func TestPlugin(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := tt.plugin.Validate()
-			if err != tt.expectedErr {
-				t.Errorf("%s: expected error %v, got %v", tt.plugin.Name, tt.expectedErr, err)
-			}
-		})
+	for _, test := range tests {
+		err := test.plugin.Validate()
+		if err != test.expectedErr {
+			t.Errorf("%s: expected error %v, got %v", test.plugin.Name, test.expectedErr, err)
+		}
 	}
 }

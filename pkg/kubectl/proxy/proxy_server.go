@@ -158,7 +158,7 @@ func (r *responder) Error(w http.ResponseWriter, req *http.Request, err error) {
 
 // makeUpgradeTransport creates a transport that explicitly bypasses HTTP2 support
 // for proxy connections that must upgrade.
-func makeUpgradeTransport(config *rest.Config, keepalive time.Duration) (proxy.UpgradeRequestRoundTripper, error) {
+func makeUpgradeTransport(config *rest.Config) (proxy.UpgradeRequestRoundTripper, error) {
 	transportConfig, err := config.TransportConfig()
 	if err != nil {
 		return nil, err
@@ -169,12 +169,7 @@ func makeUpgradeTransport(config *rest.Config, keepalive time.Duration) (proxy.U
 	}
 	rt := utilnet.SetOldTransportDefaults(&http.Transport{
 		TLSClientConfig: tlsConfig,
-		DialContext: (&net.Dialer{
-			Timeout:   30 * time.Second,
-			KeepAlive: keepalive,
-		}).DialContext,
 	})
-
 	upgrader, err := transport.HTTPWrappersForConfig(transportConfig, proxy.MirrorRequest)
 	if err != nil {
 		return nil, err
@@ -184,7 +179,7 @@ func makeUpgradeTransport(config *rest.Config, keepalive time.Duration) (proxy.U
 
 // NewServer creates and installs a new Server.
 // 'filter', if non-nil, protects requests to the api only.
-func NewServer(filebase string, apiProxyPrefix string, staticPrefix string, filter *FilterServer, cfg *rest.Config, keepalive time.Duration) (*Server, error) {
+func NewServer(filebase string, apiProxyPrefix string, staticPrefix string, filter *FilterServer, cfg *rest.Config) (*Server, error) {
 	host := cfg.Host
 	if !strings.HasSuffix(host, "/") {
 		host = host + "/"
@@ -199,7 +194,7 @@ func NewServer(filebase string, apiProxyPrefix string, staticPrefix string, filt
 	if err != nil {
 		return nil, err
 	}
-	upgradeTransport, err := makeUpgradeTransport(cfg, keepalive)
+	upgradeTransport, err := makeUpgradeTransport(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -255,6 +250,18 @@ func (s *Server) ServeOnListener(l net.Listener) error {
 
 func newFileHandler(prefix, base string) http.Handler {
 	return http.StripPrefix(prefix, http.FileServer(http.Dir(base)))
+}
+
+func singleJoiningSlash(a, b string) string {
+	aslash := strings.HasSuffix(a, "/")
+	bslash := strings.HasPrefix(b, "/")
+	switch {
+	case aslash && bslash:
+		return a + b[1:]
+	case !aslash && !bslash:
+		return a + "/" + b
+	}
+	return a + b
 }
 
 // like http.StripPrefix, but always leaves an initial slash. (so that our

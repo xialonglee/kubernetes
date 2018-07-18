@@ -3,7 +3,6 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library")
 go_library(
     name = "go_default_library",
     srcs = ["pubsub-gen.go"],
-    importmap = "k8s.io/kubernetes/vendor/google.golang.org/api/pubsub/v1",
     importpath = "google.golang.org/api/pubsub/v1",
     visibility = ["//visibility:public"],
     deps = [

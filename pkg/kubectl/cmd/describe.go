@@ -18,20 +18,21 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/kubernetes/pkg/kubectl"
 	"k8s.io/kubernetes/pkg/kubectl/cmd/templates"
 	cmdutil "k8s.io/kubernetes/pkg/kubectl/cmd/util"
-	"k8s.io/kubernetes/pkg/kubectl/genericclioptions"
-	"k8s.io/kubernetes/pkg/kubectl/genericclioptions/resource"
+	"k8s.io/kubernetes/pkg/kubectl/resource"
 	"k8s.io/kubernetes/pkg/kubectl/util/i18n"
 	"k8s.io/kubernetes/pkg/printers"
+	printersinternal "k8s.io/kubernetes/pkg/printers/internalversion"
 )
 
 var (
@@ -68,103 +69,66 @@ var (
 		kubectl describe pods frontend`))
 )
 
-type DescribeOptions struct {
-	CmdParent string
-	Selector  string
-	Namespace string
+func NewCmdDescribe(f cmdutil.Factory, out, cmdErr io.Writer) *cobra.Command {
+	options := &resource.FilenameOptions{}
+	describerSettings := &printers.DescriberSettings{}
 
-	Describer  func(*meta.RESTMapping) (printers.Describer, error)
-	NewBuilder func() *resource.Builder
-
-	BuilderArgs []string
-
-	EnforceNamespace     bool
-	AllNamespaces        bool
-	IncludeUninitialized bool
-
-	DescriberSettings *printers.DescriberSettings
-	FilenameOptions   *resource.FilenameOptions
-
-	genericclioptions.IOStreams
-}
-
-func NewCmdDescribe(parent string, f cmdutil.Factory, streams genericclioptions.IOStreams) *cobra.Command {
-	o := &DescribeOptions{
-		FilenameOptions: &resource.FilenameOptions{},
-		DescriberSettings: &printers.DescriberSettings{
-			ShowEvents: true,
-		},
-
-		CmdParent: parent,
-
-		IOStreams: streams,
-	}
+	// TODO: this should come from the factory, and may need to be loaded from the server, and so is probably
+	//   going to have to be removed
+	validArgs := printersinternal.DescribableResources()
+	argAliases := kubectl.ResourceAliases(validArgs)
 
 	cmd := &cobra.Command{
-		Use: "describe (-f FILENAME | TYPE [NAME_PREFIX | -l label] | TYPE/NAME)",
-		DisableFlagsInUseLine: true,
+		Use:     "describe (-f FILENAME | TYPE [NAME_PREFIX | -l label] | TYPE/NAME)",
 		Short:   i18n.T("Show details of a specific resource or group of resources"),
-		Long:    describeLong + "\n\n" + cmdutil.SuggestApiResources(parent),
+		Long:    describeLong + "\n\n" + cmdutil.ValidResourceTypeList(f),
 		Example: describeExample,
 		Run: func(cmd *cobra.Command, args []string) {
-			cmdutil.CheckErr(o.Complete(f, cmd, args))
-			cmdutil.CheckErr(o.Run())
+			err := RunDescribe(f, out, cmdErr, cmd, args, options, describerSettings)
+			cmdutil.CheckErr(err)
 		},
+		ValidArgs:  validArgs,
+		ArgAliases: argAliases,
 	}
 	usage := "containing the resource to describe"
-	cmdutil.AddFilenameOptionFlags(cmd, o.FilenameOptions, usage)
-	cmd.Flags().StringVarP(&o.Selector, "selector", "l", o.Selector, "Selector (label query) to filter on, supports '=', '==', and '!='.(e.g. -l key1=value1,key2=value2)")
-	cmd.Flags().BoolVar(&o.AllNamespaces, "all-namespaces", o.AllNamespaces, "If present, list the requested object(s) across all namespaces. Namespace in current context is ignored even if specified with --namespace.")
-	cmd.Flags().BoolVar(&o.DescriberSettings.ShowEvents, "show-events", o.DescriberSettings.ShowEvents, "If true, display events related to the described object.")
+	cmdutil.AddFilenameOptionFlags(cmd, options, usage)
+	cmd.Flags().StringP("selector", "l", "", "Selector (label query) to filter on, supports '=', '==', and '!='.(e.g. -l key1=value1,key2=value2)")
+	cmd.Flags().Bool("all-namespaces", false, "If present, list the requested object(s) across all namespaces. Namespace in current context is ignored even if specified with --namespace.")
+	cmd.Flags().BoolVar(&describerSettings.ShowEvents, "show-events", true, "If true, display events related to the described object.")
+	cmdutil.AddInclude3rdPartyFlags(cmd)
 	cmdutil.AddIncludeUninitializedFlag(cmd)
 	return cmd
 }
 
-func (o *DescribeOptions) Complete(f cmdutil.Factory, cmd *cobra.Command, args []string) error {
-	var err error
-	o.Namespace, o.EnforceNamespace, err = f.ToRawKubeConfigLoader().Namespace()
+func RunDescribe(f cmdutil.Factory, out, cmdErr io.Writer, cmd *cobra.Command, args []string, options *resource.FilenameOptions, describerSettings *printers.DescriberSettings) error {
+	selector := cmdutil.GetFlagString(cmd, "selector")
+	allNamespaces := cmdutil.GetFlagBool(cmd, "all-namespaces")
+	cmdNamespace, enforceNamespace, err := f.DefaultNamespace()
 	if err != nil {
 		return err
 	}
-
-	if o.AllNamespaces {
-		o.EnforceNamespace = false
+	if allNamespaces {
+		enforceNamespace = false
 	}
-
-	if len(args) == 0 && cmdutil.IsFilenameSliceEmpty(o.FilenameOptions.Filenames) {
-		return fmt.Errorf("You must specify the type of resource to describe. %s\n", cmdutil.SuggestApiResources(o.CmdParent))
+	if len(args) == 0 && cmdutil.IsFilenameSliceEmpty(options.Filenames) {
+		fmt.Fprint(cmdErr, "You must specify the type of resource to describe. ", cmdutil.ValidResourceTypeList(f))
+		return cmdutil.UsageErrorf(cmd, "Required resource not specified.")
 	}
-
-	o.BuilderArgs = args
-
-	o.Describer = func(mapping *meta.RESTMapping) (printers.Describer, error) {
-		return cmdutil.DescriberFn(f, mapping)
-	}
-
-	o.NewBuilder = f.NewBuilder
 
 	// include the uninitialized objects by default
 	// unless user explicitly set --include-uninitialized=false
-	o.IncludeUninitialized = cmdutil.ShouldIncludeUninitialized(cmd, true)
-	return nil
-}
-
-func (o *DescribeOptions) Validate(args []string) error {
-	return nil
-}
-
-func (o *DescribeOptions) Run() error {
-	r := o.NewBuilder().
+	includeUninitialized := cmdutil.ShouldIncludeUninitialized(cmd, true)
+	r := f.NewBuilder().
 		Unstructured().
 		ContinueOnError().
-		NamespaceParam(o.Namespace).DefaultNamespace().AllNamespaces(o.AllNamespaces).
-		FilenameParam(o.EnforceNamespace, o.FilenameOptions).
-		LabelSelectorParam(o.Selector).
-		IncludeUninitialized(o.IncludeUninitialized).
-		ResourceTypeOrNameArgs(true, o.BuilderArgs...).
+		NamespaceParam(cmdNamespace).DefaultNamespace().AllNamespaces(allNamespaces).
+		FilenameParam(enforceNamespace, options).
+		LabelSelectorParam(selector).
+		IncludeUninitialized(includeUninitialized).
+		ResourceTypeOrNameArgs(true, args...).
 		Flatten().
 		Do()
-	err := r.Err()
+	err = r.Err()
 	if err != nil {
 		return err
 	}
@@ -172,8 +136,8 @@ func (o *DescribeOptions) Run() error {
 	allErrs := []error{}
 	infos, err := r.Infos()
 	if err != nil {
-		if apierrors.IsNotFound(err) && len(o.BuilderArgs) == 2 {
-			return o.DescribeMatchingResources(err, o.BuilderArgs[0], o.BuilderArgs[1])
+		if apierrors.IsNotFound(err) && len(args) == 2 {
+			return DescribeMatchingResources(f, cmdNamespace, args[0], args[1], describerSettings, out, err)
 		}
 		allErrs = append(allErrs, err)
 	}
@@ -182,7 +146,7 @@ func (o *DescribeOptions) Run() error {
 	first := true
 	for _, info := range infos {
 		mapping := info.ResourceMapping()
-		describer, err := o.Describer(mapping)
+		describer, err := f.Describer(mapping)
 		if err != nil {
 			if errs.Has(err.Error()) {
 				continue
@@ -191,7 +155,7 @@ func (o *DescribeOptions) Run() error {
 			errs.Insert(err.Error())
 			continue
 		}
-		s, err := describer.Describe(info.Namespace, info.Name, *o.DescriberSettings)
+		s, err := describer.Describe(info.Namespace, info.Name, *describerSettings)
 		if err != nil {
 			if errs.Has(err.Error()) {
 				continue
@@ -202,20 +166,20 @@ func (o *DescribeOptions) Run() error {
 		}
 		if first {
 			first = false
-			fmt.Fprint(o.Out, s)
+			fmt.Fprint(out, s)
 		} else {
-			fmt.Fprintf(o.Out, "\n\n%s", s)
+			fmt.Fprintf(out, "\n\n%s", s)
 		}
 	}
 
 	return utilerrors.NewAggregate(allErrs)
 }
 
-func (o *DescribeOptions) DescribeMatchingResources(originalError error, resource, prefix string) error {
-	r := o.NewBuilder().
+func DescribeMatchingResources(f cmdutil.Factory, namespace, rsrc, prefix string, describerSettings *printers.DescriberSettings, out io.Writer, originalError error) error {
+	r := f.NewBuilder().
 		Unstructured().
-		NamespaceParam(o.Namespace).DefaultNamespace().
-		ResourceTypeOrNameArgs(true, resource).
+		NamespaceParam(namespace).DefaultNamespace().
+		ResourceTypeOrNameArgs(true, rsrc).
 		SingleResourceType().
 		Flatten().
 		Do()
@@ -223,7 +187,7 @@ func (o *DescribeOptions) DescribeMatchingResources(originalError error, resourc
 	if err != nil {
 		return err
 	}
-	describer, err := o.Describer(mapping)
+	describer, err := f.Describer(mapping)
 	if err != nil {
 		return err
 	}
@@ -236,11 +200,11 @@ func (o *DescribeOptions) DescribeMatchingResources(originalError error, resourc
 		info := infos[ix]
 		if strings.HasPrefix(info.Name, prefix) {
 			isFound = true
-			s, err := describer.Describe(info.Namespace, info.Name, *o.DescriberSettings)
+			s, err := describer.Describe(info.Namespace, info.Name, *describerSettings)
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(o.Out, "%s\n", s)
+			fmt.Fprintf(out, "%s\n", s)
 		}
 	}
 	if !isFound {

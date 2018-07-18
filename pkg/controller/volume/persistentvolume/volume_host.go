@@ -20,12 +20,11 @@ import (
 	"fmt"
 	"net"
 
-	authenticationv1 "k8s.io/api/authentication/v1"
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	clientset "k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/tools/record"
 	"k8s.io/kubernetes/pkg/cloudprovider"
+	"k8s.io/kubernetes/pkg/util/io"
 	"k8s.io/kubernetes/pkg/util/mount"
 	vol "k8s.io/kubernetes/pkg/volume"
 )
@@ -39,10 +38,6 @@ func (ctrl *PersistentVolumeController) GetPluginDir(pluginName string) string {
 }
 
 func (ctrl *PersistentVolumeController) GetVolumeDevicePluginDir(pluginName string) string {
-	return ""
-}
-
-func (ctrl *PersistentVolumeController) GetPodsDir() string {
 	return ""
 }
 
@@ -78,6 +73,10 @@ func (ctrl *PersistentVolumeController) GetMounter(pluginName string) mount.Inte
 	return nil
 }
 
+func (ctrl *PersistentVolumeController) GetWriter() io.Writer {
+	return nil
+}
+
 func (ctrl *PersistentVolumeController) GetHostName() string {
 	return ""
 }
@@ -90,21 +89,15 @@ func (ctrl *PersistentVolumeController) GetNodeAllocatable() (v1.ResourceList, e
 	return v1.ResourceList{}, nil
 }
 
-func (ctrl *PersistentVolumeController) GetSecretFunc() func(namespace, name string) (*v1.Secret, error) {
+func (adc *PersistentVolumeController) GetSecretFunc() func(namespace, name string) (*v1.Secret, error) {
 	return func(_, _ string) (*v1.Secret, error) {
 		return nil, fmt.Errorf("GetSecret unsupported in PersistentVolumeController")
 	}
 }
 
-func (ctrl *PersistentVolumeController) GetConfigMapFunc() func(namespace, name string) (*v1.ConfigMap, error) {
+func (adc *PersistentVolumeController) GetConfigMapFunc() func(namespace, name string) (*v1.ConfigMap, error) {
 	return func(_, _ string) (*v1.ConfigMap, error) {
 		return nil, fmt.Errorf("GetConfigMap unsupported in PersistentVolumeController")
-	}
-}
-
-func (ctrl *PersistentVolumeController) GetServiceAccountTokenFunc() func(_, _ string, _ *authenticationv1.TokenRequest) (*authenticationv1.TokenRequest, error) {
-	return func(_, _ string, _ *authenticationv1.TokenRequest) (*authenticationv1.TokenRequest, error) {
-		return nil, fmt.Errorf("GetServiceAccountToken unsupported in PersistentVolumeController")
 	}
 }
 
@@ -118,8 +111,4 @@ func (ctrl *PersistentVolumeController) GetNodeLabels() (map[string]string, erro
 
 func (ctrl *PersistentVolumeController) GetNodeName() types.NodeName {
 	return ""
-}
-
-func (ctrl *PersistentVolumeController) GetEventRecorder() record.EventRecorder {
-	return ctrl.eventRecorder
 }

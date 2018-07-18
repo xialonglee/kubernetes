@@ -55,8 +55,6 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	kubeletapis "k8s.io/kubernetes/pkg/kubelet/apis"
 	"k8s.io/kubernetes/test/e2e/framework"
-	"k8s.io/kubernetes/test/e2e/storage/utils"
-	vspheretest "k8s.io/kubernetes/test/e2e/storage/vsphere"
 )
 
 func DeleteCinderVolume(name string) error {
@@ -81,7 +79,7 @@ func DeleteCinderVolume(name string) error {
 }
 
 // These tests need privileged containers, which are disabled by default.
-var _ = utils.SIGDescribe("Volumes", func() {
+var _ = SIGDescribe("Volumes", func() {
 	f := framework.NewDefaultFramework("volume")
 
 	// note that namespace deletion is handled by delete-namespace flag
@@ -199,9 +197,34 @@ var _ = utils.SIGDescribe("Volumes", func() {
 
 	Describe("Ceph RBD [Feature:Volumes]", func() {
 		It("should be mountable", func() {
-			config, _, secret, serverIP := framework.NewRBDServer(cs, namespace.Name)
+			config, _, serverIP := framework.NewRBDServer(cs, namespace.Name)
 			defer framework.VolumeTestCleanup(f, config)
-			defer cs.CoreV1().Secrets(config.Namespace).Delete(secret.Name, nil)
+
+			// create secrets for the server
+			secret := v1.Secret{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "Secret",
+					APIVersion: "v1",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name: config.Prefix + "-secret",
+				},
+				Data: map[string][]byte{
+					// from test/images/volumes-tester/rbd/keyring
+					"key": []byte("AQDRrKNVbEevChAAEmRC+pW/KBVHxa0w/POILA=="),
+				},
+				Type: "kubernetes.io/rbd",
+			}
+
+			secClient := cs.CoreV1().Secrets(config.Namespace)
+
+			defer func() {
+				secClient.Delete(config.Prefix+"-secret", nil)
+			}()
+
+			if _, err := secClient.Create(&secret); err != nil {
+				framework.Failf("Failed to create secrets for Ceph RBD: %v", err)
+			}
 
 			tests := []framework.VolumeTest{
 				{
@@ -212,7 +235,7 @@ var _ = utils.SIGDescribe("Volumes", func() {
 							RBDImage:     "foo",
 							RadosUser:    "admin",
 							SecretRef: &v1.LocalObjectReference{
-								Name: secret.Name,
+								Name: config.Prefix + "-secret",
 							},
 							FSType: "ext2",
 						},
@@ -232,9 +255,45 @@ var _ = utils.SIGDescribe("Volumes", func() {
 	////////////////////////////////////////////////////////////////////////
 	Describe("CephFS [Feature:Volumes]", func() {
 		It("should be mountable", func() {
-			config, _, secret, serverIP := framework.NewRBDServer(cs, namespace.Name)
+			config := framework.VolumeTestConfig{
+				Namespace:   namespace.Name,
+				Prefix:      "cephfs",
+				ServerImage: framework.CephServerImage,
+				ServerPorts: []int{6789},
+			}
+
 			defer framework.VolumeTestCleanup(f, config)
-			defer cs.CoreV1().Secrets(config.Namespace).Delete(secret.Name, nil)
+			_, serverIP := framework.CreateStorageServer(cs, config)
+			By("sleeping a bit to give ceph server time to initialize")
+			time.Sleep(20 * time.Second)
+
+			// create ceph secret
+			secret := &v1.Secret{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "Secret",
+					APIVersion: "v1",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name: config.Prefix + "-secret",
+				},
+				// Must use the ceph keyring at contrib/for-tests/volumes-ceph/ceph/init.sh
+				// and encode in base64
+				Data: map[string][]byte{
+					"key": []byte("AQAMgXhVwBCeDhAA9nlPaFyfUSatGD4drFWDvQ=="),
+				},
+				Type: "kubernetes.io/cephfs",
+			}
+
+			defer func() {
+				if err := cs.CoreV1().Secrets(namespace.Name).Delete(secret.Name, nil); err != nil {
+					framework.Failf("unable to delete secret %v: %v", secret.Name, err)
+				}
+			}()
+
+			var err error
+			if secret, err = cs.CoreV1().Secrets(namespace.Name).Create(secret); err != nil {
+				framework.Failf("unable to create test secret %s: %v", secret.Name, err)
+			}
 
 			tests := []framework.VolumeTest{
 				{
@@ -242,7 +301,7 @@ var _ = utils.SIGDescribe("Volumes", func() {
 						CephFS: &v1.CephFSVolumeSource{
 							Monitors:  []string{serverIP + ":6789"},
 							User:      "kube",
-							SecretRef: &v1.LocalObjectReference{Name: secret.Name},
+							SecretRef: &v1.LocalObjectReference{Name: config.Prefix + "-secret"},
 							ReadOnly:  true,
 						},
 					},
@@ -263,7 +322,7 @@ var _ = utils.SIGDescribe("Volumes", func() {
 	// (/usr/bin/nova, /usr/bin/cinder and /usr/bin/keystone)
 	// and that the usual OpenStack authentication env. variables are set
 	// (OS_USERNAME, OS_PASSWORD, OS_TENANT_NAME at least).
-	Describe("Cinder", func() {
+	Describe("Cinder [Feature:Volumes]", func() {
 		It("should be mountable", func() {
 			framework.SkipUnlessProviderIs("openstack")
 			config := framework.VolumeTestConfig{
@@ -438,21 +497,27 @@ var _ = utils.SIGDescribe("Volumes", func() {
 	////////////////////////////////////////////////////////////////////////
 	// vSphere
 	////////////////////////////////////////////////////////////////////////
-	Describe("vsphere", func() {
+	Describe("vsphere [Feature:Volumes]", func() {
 		It("should be mountable", func() {
 			framework.SkipUnlessProviderIs("vsphere")
-			vspheretest.Bootstrap(f)
-			nodeInfo := vspheretest.GetReadySchedulableRandomNodeInfo()
 			var volumePath string
 			config := framework.VolumeTestConfig{
 				Namespace: namespace.Name,
 				Prefix:    "vsphere",
 			}
-			volumePath, err := nodeInfo.VSphere.CreateVolume(&vspheretest.VolumeOptions{}, nodeInfo.DataCenterRef)
+			By("creating a test vsphere volume")
+			c, err := framework.LoadClientset()
+			if err != nil {
+				return
+			}
+			vsp, err := getVSphere(c)
+			Expect(err).NotTo(HaveOccurred())
+
+			volumePath, err = createVSphereVolume(vsp, nil)
 			Expect(err).NotTo(HaveOccurred())
 
 			defer func() {
-				nodeInfo.VSphere.DeleteVolume(volumePath, nodeInfo.DataCenterRef)
+				vsp.DeleteVolume(volumePath)
 			}()
 
 			defer func() {
@@ -485,7 +550,7 @@ var _ = utils.SIGDescribe("Volumes", func() {
 	////////////////////////////////////////////////////////////////////////
 	// Azure Disk
 	////////////////////////////////////////////////////////////////////////
-	Describe("Azure Disk", func() {
+	Describe("Azure Disk [Feature:Volumes]", func() {
 		It("should be mountable [Slow]", func() {
 			framework.SkipUnlessProviderIs("azure")
 			config := framework.VolumeTestConfig{

@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
 # Copyright 2016 The Kubernetes Authors.
 #
@@ -31,11 +31,7 @@ make -C "${KUBE_ROOT}" WHAT=cmd/kube-apiserver
 
 function cleanup()
 {
-    if [[ -n ${APISERVER_PID-} ]]; then
-      kill ${APISERVER_PID} 1>&2 2>/dev/null
-      wait ${APISERVER_PID} || true
-    fi
-    unset APISERVER_PID
+    [[ -n ${APISERVER_PID-} ]] && kill ${APISERVER_PID} 1>&2 2>/dev/null
 
     kube::etcd::cleanup
 
@@ -46,12 +42,13 @@ trap cleanup EXIT SIGINT
 
 kube::golang::setup_env
 
+apiserver=$(kube::util::find-binary "kube-apiserver")
+
 TMP_DIR=$(mktemp -d /tmp/update-openapi-spec.XXXX)
 ETCD_HOST=${ETCD_HOST:-127.0.0.1}
 ETCD_PORT=${ETCD_PORT:-2379}
 API_PORT=${API_PORT:-8050}
 API_HOST=${API_HOST:-127.0.0.1}
-API_LOGFILE=${API_LOGFILE:-/tmp/openapi-api-server.log}
 
 kube::etcd::start
 
@@ -70,16 +67,10 @@ kube::log::status "Starting kube-apiserver"
   --token-auth-file=$TMP_DIR/tokenauth.csv \
   --logtostderr \
   --v=2 \
-  --service-cluster-ip-range="10.0.0.0/24" >"${API_LOGFILE}" 2>&1 &
+  --service-cluster-ip-range="10.0.0.0/24" >/tmp/openapi-api-server.log 2>&1 &
 APISERVER_PID=$!
 
-if ! kube::util::wait_for_url "${API_HOST}:${API_PORT}/healthz" "apiserver: "; then
-  kube::log::error "Here are the last 10 lines from kube-apiserver (${API_LOGFILE})"
-  kube::log::error "=== BEGIN OF LOG ==="
-  tail -10 "${API_LOGFILE}" || :
-  kube::log::error "=== END OF LOG ==="
-  exit 1
-fi
+kube::util::wait_for_url "${API_HOST}:${API_PORT}/healthz" "apiserver: "
 
 kube::log::status "Updating " ${OPENAPI_ROOT_DIR}
 

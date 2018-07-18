@@ -9,7 +9,6 @@ go_library(
         "service.go",
         "waiters.go",
     ],
-    importmap = "k8s.io/kubernetes/vendor/github.com/aws/aws-sdk-go/service/elb",
     importpath = "github.com/aws/aws-sdk-go/service/elb",
     visibility = ["//visibility:public"],
     deps = [

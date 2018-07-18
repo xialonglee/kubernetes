@@ -18,7 +18,6 @@ package ssh
 
 import (
 	"bytes"
-	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
@@ -122,11 +121,10 @@ func (s *SSHTunnel) Open() error {
 	return err
 }
 
-func (s *SSHTunnel) Dial(ctx context.Context, network, address string) (net.Conn, error) {
+func (s *SSHTunnel) Dial(network, address string) (net.Conn, error) {
 	if s.client == nil {
 		return nil, errors.New("tunnel is not opened.")
 	}
-	// This Dial method does not allow to pass a context unfortunately
 	return s.client.Dial(network, address)
 }
 
@@ -296,7 +294,7 @@ func ParsePublicKeyFromFile(keyFile string) (*rsa.PublicKey, error) {
 type tunnel interface {
 	Open() error
 	Close() error
-	Dial(ctx context.Context, network, address string) (net.Conn, error)
+	Dial(network, address string) (net.Conn, error)
 }
 
 type sshTunnelEntry struct {
@@ -363,7 +361,7 @@ func (l *SSHTunnelList) delayedHealthCheck(e sshTunnelEntry, delay time.Duration
 func (l *SSHTunnelList) healthCheck(e sshTunnelEntry) error {
 	// GET the healthcheck path using the provided tunnel's dial function.
 	transport := utilnet.SetTransportDefaults(&http.Transport{
-		DialContext: e.Tunnel.Dial,
+		Dial: e.Tunnel.Dial,
 		// TODO(cjcullen): Plumb real TLS options through.
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		// We don't reuse the clients, so disable the keep-alive to properly
@@ -396,18 +394,18 @@ func (l *SSHTunnelList) removeAndReAdd(e sshTunnelEntry) {
 	go l.createAndAddTunnel(e.Address)
 }
 
-func (l *SSHTunnelList) Dial(ctx context.Context, net, addr string) (net.Conn, error) {
+func (l *SSHTunnelList) Dial(net, addr string) (net.Conn, error) {
 	start := time.Now()
 	id := mathrand.Int63() // So you can match begins/ends in the log.
 	glog.Infof("[%x: %v] Dialing...", id, addr)
 	defer func() {
-		glog.Infof("[%x: %v] Dialed in %v.", id, addr, time.Since(start))
+		glog.Infof("[%x: %v] Dialed in %v.", id, addr, time.Now().Sub(start))
 	}()
 	tunnel, err := l.pickTunnel(strings.Split(addr, ":")[0])
 	if err != nil {
 		return nil, err
 	}
-	return tunnel.Dial(ctx, net, addr)
+	return tunnel.Dial(net, addr)
 }
 
 func (l *SSHTunnelList) pickTunnel(addr string) (tunnel, error) {

@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
 # Copyright 2015 The Kubernetes Authors.
 #
@@ -131,13 +131,12 @@ function make-a-pr() {
   # when we shove the heredoc at hub directly, tickling the ioctl
   # crash.
   prtext="$(mktemp -t prtext.XXXX)" # cleaned in return_to_kansas
-  local numandtitle=$(printf '%s\n' "${SUBJECTS[@]}")
   cat >"${prtext}" <<EOF
-Automated cherry pick of ${numandtitle}
+Automated cherry pick of ${PULLSUBJ}
 
 Cherry pick of ${PULLSUBJ} on ${rel}.
 
-${numandtitle}
+$(printf '%s\n' "${SUBJECTS[@]}")
 EOF
 
   hub pull-request -F "${prtext}" -h "${GITHUB_USER}:${NEWBRANCH}" -b "kubernetes:${rel}"

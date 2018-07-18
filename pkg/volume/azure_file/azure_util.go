@@ -29,10 +29,9 @@ import (
 const (
 	fileMode        = "file_mode"
 	dirMode         = "dir_mode"
-	gid             = "gid"
 	vers            = "vers"
-	defaultFileMode = "0755"
-	defaultDirMode  = "0755"
+	defaultFileMode = "0700"
+	defaultDirMode  = "0700"
 	defaultVers     = "3.0"
 )
 
@@ -96,12 +95,11 @@ func (s *azureSvc) SetAzureCredentials(host volume.VolumeHost, nameSpace, accoun
 	return secretName, err
 }
 
-// check whether mountOptions contain file_mode, dir_mode, vers, gid, if not, append default mode
-func appendDefaultMountOptions(mountOptions []string, fsGroup *int64) []string {
+// check whether mountOptions contain file_mode and dir_mode, if not, append default mode
+func appendDefaultMountOptions(mountOptions []string) []string {
 	fileModeFlag := false
 	dirModeFlag := false
 	versFlag := false
-	gidFlag := false
 
 	for _, mountOption := range mountOptions {
 		if strings.HasPrefix(mountOption, fileMode) {
@@ -112,9 +110,6 @@ func appendDefaultMountOptions(mountOptions []string, fsGroup *int64) []string {
 		}
 		if strings.HasPrefix(mountOption, vers) {
 			versFlag = true
-		}
-		if strings.HasPrefix(mountOption, gid) {
-			gidFlag = true
 		}
 	}
 
@@ -129,10 +124,6 @@ func appendDefaultMountOptions(mountOptions []string, fsGroup *int64) []string {
 
 	if !versFlag {
 		allMountOptions = append(allMountOptions, fmt.Sprintf("%s=%s", vers, defaultVers))
-	}
-
-	if !gidFlag && fsGroup != nil {
-		allMountOptions = append(allMountOptions, fmt.Sprintf("%s=%d", gid, *fsGroup))
 	}
 	return allMountOptions
 }

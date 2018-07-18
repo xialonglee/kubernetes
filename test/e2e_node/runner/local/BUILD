@@ -8,7 +8,8 @@ load(
 
 go_binary(
     name = "local",
-    embed = [":go_default_library"],
+    importpath = "k8s.io/kubernetes/test/e2e_node/runner/local",
+    library = ":go_default_library",
 )
 
 go_library(
@@ -17,7 +18,6 @@ go_library(
     importpath = "k8s.io/kubernetes/test/e2e_node/runner/local",
     deps = [
         "//test/e2e_node/builder:go_default_library",
-        "//test/utils:go_default_library",
         "//vendor/github.com/golang/glog:go_default_library",
     ],
 )

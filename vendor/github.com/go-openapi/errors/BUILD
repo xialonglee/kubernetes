@@ -10,7 +10,6 @@ go_library(
         "parsing.go",
         "schema.go",
     ],
-    importmap = "k8s.io/kubernetes/vendor/github.com/go-openapi/errors",
     importpath = "github.com/go-openapi/errors",
     visibility = ["//visibility:public"],
 )

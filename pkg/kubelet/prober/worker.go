@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/golang/glog"
-	"github.com/prometheus/client_golang/prometheus"
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/runtime"
 	podutil "k8s.io/kubernetes/pkg/api/v1/pod"
@@ -66,10 +65,6 @@ type worker struct {
 
 	// If set, skip probing.
 	onHold bool
-
-	// proberResultsMetricLabels holds the labels attached to this worker
-	// for the ProberResults metric.
-	proberResultsMetricLabels prometheus.Labels
 }
 
 // Creates and starts a new probe worker.
@@ -98,14 +93,6 @@ func newWorker(
 		w.initialValue = results.Success
 	}
 
-	w.proberResultsMetricLabels = prometheus.Labels{
-		"probe_type":     w.probeType.String(),
-		"container_name": w.container.Name,
-		"pod_name":       w.pod.Name,
-		"namespace":      w.pod.Namespace,
-		"pod_uid":        string(w.pod.UID),
-	}
-
 	return w
 }
 
@@ -127,7 +114,6 @@ func (w *worker) run() {
 		}
 
 		w.probeManager.removeWorker(w.pod.UID, w.container.Name, w.probeType)
-		ProberResults.Delete(w.proberResultsMetricLabels)
 	}()
 
 probeLoop:
@@ -232,7 +218,6 @@ func (w *worker) doProbe() (keepGoing bool) {
 	}
 
 	w.resultsManager.Set(w.containerID, result, w.pod)
-	ProberResults.With(w.proberResultsMetricLabels).Set(result.ToPrometheusType())
 
 	if w.probeType == liveness && result == results.Failure {
 		// The container fails a liveness check, it will need to be restarted.
@@ -240,7 +225,7 @@ func (w *worker) doProbe() (keepGoing bool) {
 		// chance of hitting #21751, where running `docker exec` when a
 		// container is being stopped may lead to corrupted container state.
 		w.onHold = true
-		w.resultRun = 0
+		w.resultRun = 1
 	}
 
 	return true

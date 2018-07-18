@@ -32,15 +32,13 @@ import (
 
 	yaml "gopkg.in/yaml.v2"
 
-	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/util/diff"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/rest/fake"
-	"k8s.io/kubernetes/pkg/kubectl/cmd/create"
 	cmdtesting "k8s.io/kubernetes/pkg/kubectl/cmd/testing"
 	cmdutil "k8s.io/kubernetes/pkg/kubectl/cmd/util"
-	"k8s.io/kubernetes/pkg/kubectl/genericclioptions"
-	"k8s.io/kubernetes/pkg/kubectl/genericclioptions/resource"
+	"k8s.io/kubernetes/pkg/kubectl/resource"
 )
 
 type EditTestCase struct {
@@ -208,15 +206,14 @@ func TestEdit(t *testing.T) {
 				t.Fatalf("%s: %v", name, err)
 			}
 
-			tf := cmdtesting.NewTestFactory()
-			defer tf.Cleanup()
-
-			tf.UnstructuredClientForMappingFunc = func(gv schema.GroupVersion) (resource.RESTClient, error) {
+			f, tf, _, _ := cmdtesting.NewAPIFactory()
+			tf.Printer = &testPrinter{}
+			tf.UnstructuredClientForMappingFunc = func(mapping *meta.RESTMapping) (resource.RESTClient, error) {
 				versionedAPIPath := ""
-				if gv.Group == "" {
-					versionedAPIPath = "/api/" + gv.Version
+				if mapping.GroupVersionKind.Group == "" {
+					versionedAPIPath = "/api/" + mapping.GroupVersionKind.Version
 				} else {
-					versionedAPIPath = "/apis/" + gv.Group + "/" + gv.Version
+					versionedAPIPath = "/apis/" + mapping.GroupVersionKind.Group + "/" + mapping.GroupVersionKind.Version
 				}
 				return &fake.RESTClient{
 					VersionedAPIPath:     versionedAPIPath,
@@ -224,19 +221,24 @@ func TestEdit(t *testing.T) {
 					Client:               fake.CreateHTTPClient(reqResp),
 				}, nil
 			}
-			tf.WithNamespace(testcase.Namespace)
-			tf.ClientConfigVal = defaultClientConfig()
-			ioStreams, _, buf, errBuf := genericclioptions.NewTestIOStreams()
+
+			if len(testcase.Namespace) > 0 {
+				tf.Namespace = testcase.Namespace
+			}
+			tf.ClientConfig = defaultClientConfig()
+			tf.Command = "edit test cmd invocation"
+			buf := bytes.NewBuffer([]byte{})
+			errBuf := bytes.NewBuffer([]byte{})
 
 			var cmd *cobra.Command
 			switch testcase.Mode {
 			case "edit":
-				cmd = NewCmdEdit(tf, ioStreams)
+				cmd = NewCmdEdit(f, buf, errBuf)
 			case "create":
-				cmd = create.NewCmdCreate(tf, ioStreams)
+				cmd = NewCmdCreate(f, buf, errBuf)
 				cmd.Flags().Set("edit", "true")
 			case "edit-last-applied":
-				cmd = NewCmdApplyEditLastApplied(tf, ioStreams)
+				cmd = NewCmdApplyEditLastApplied(f, buf, errBuf)
 			default:
 				t.Fatalf("%s: unexpected mode %s", name, testcase.Mode)
 			}

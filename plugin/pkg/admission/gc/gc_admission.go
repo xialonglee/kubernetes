@@ -30,12 +30,9 @@ import (
 	"k8s.io/apiserver/pkg/authorization/authorizer"
 )
 
-// PluginName indicates name of admission plugin.
-const PluginName = "OwnerReferencesPermissionEnforcement"
-
 // Register registers a plugin
 func Register(plugins *admission.Plugins) {
-	plugins.Register(PluginName, func(config io.Reader) (admission.Interface, error) {
+	plugins.Register("OwnerReferencesPermissionEnforcement", func(config io.Reader) (admission.Interface, error) {
 		// the pods/status endpoint is ignored by this plugin since old kubelets
 		// corrupt them.  the pod status strategy ensures status updates cannot mutate
 		// ownerRef.
@@ -95,26 +92,21 @@ func (a *gcPermissionsEnforcement) Validate(attributes admission.Attributes) (er
 		return nil
 	}
 
-	// if you are creating a thing, you should always be allowed to set an owner ref since you logically had the power
-	// to never create it.  We still need to check block owner deletion below, because the power to delete does not
-	// imply the power to prevent deletion on other resources.
-	if attributes.GetOperation() != admission.Create {
-		deleteAttributes := authorizer.AttributesRecord{
-			User:            attributes.GetUserInfo(),
-			Verb:            "delete",
-			Namespace:       attributes.GetNamespace(),
-			APIGroup:        attributes.GetResource().Group,
-			APIVersion:      attributes.GetResource().Version,
-			Resource:        attributes.GetResource().Resource,
-			Subresource:     attributes.GetSubresource(),
-			Name:            attributes.GetName(),
-			ResourceRequest: true,
-			Path:            "",
-		}
-		decision, reason, err := a.authorizer.Authorize(deleteAttributes)
-		if decision != authorizer.DecisionAllow {
-			return admission.NewForbidden(attributes, fmt.Errorf("cannot set an ownerRef on a resource you can't delete: %v, %v", reason, err))
-		}
+	deleteAttributes := authorizer.AttributesRecord{
+		User:            attributes.GetUserInfo(),
+		Verb:            "delete",
+		Namespace:       attributes.GetNamespace(),
+		APIGroup:        attributes.GetResource().Group,
+		APIVersion:      attributes.GetResource().Version,
+		Resource:        attributes.GetResource().Resource,
+		Subresource:     attributes.GetSubresource(),
+		Name:            attributes.GetName(),
+		ResourceRequest: true,
+		Path:            "",
+	}
+	decision, reason, err := a.authorizer.Authorize(deleteAttributes)
+	if decision != authorizer.DecisionAllow {
+		return admission.NewForbidden(attributes, fmt.Errorf("cannot set an ownerRef on a resource you can't delete: %v, %v", reason, err))
 	}
 
 	// Further check if the user is setting ownerReference.blockOwnerDeletion to
@@ -124,7 +116,7 @@ func (a *gcPermissionsEnforcement) Validate(attributes admission.Attributes) (er
 	for _, ref := range newBlockingRefs {
 		records, err := a.ownerRefToDeleteAttributeRecords(ref, attributes)
 		if err != nil {
-			return admission.NewForbidden(attributes, fmt.Errorf("cannot set blockOwnerDeletion in this case because cannot find RESTMapping for APIVersion %s Kind %s: %v", ref.APIVersion, ref.Kind, err))
+			return admission.NewForbidden(attributes, fmt.Errorf("cannot set blockOwnerDeletion in this case because cannot find RESTMapping for APIVersion %s Kind %s: %v, %v", ref.APIVersion, ref.Kind, reason, err))
 		}
 		// Multiple records are returned if ref.Kind could map to multiple
 		// resources. User needs to have delete permission on all the
@@ -191,9 +183,9 @@ func (a *gcPermissionsEnforcement) ownerRefToDeleteAttributeRecords(ref metav1.O
 			Verb: "update",
 			// ownerReference can only refer to an object in the same namespace, so attributes.GetNamespace() equals to the owner's namespace
 			Namespace:       attributes.GetNamespace(),
-			APIGroup:        mapping.Resource.Group,
-			APIVersion:      mapping.Resource.Version,
-			Resource:        mapping.Resource.Resource,
+			APIGroup:        groupVersion.Group,
+			APIVersion:      groupVersion.Version,
+			Resource:        mapping.Resource,
 			Subresource:     "finalizers",
 			Name:            ref.Name,
 			ResourceRequest: true,

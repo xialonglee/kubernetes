@@ -122,14 +122,12 @@ func TestSecretForTLSGenerate(t *testing.T) {
 	defer tearDown(mismatchCertTmpDir)
 	mismatchKeyPath, mismatchCertPath := writeKeyPair(mismatchCertTmpDir, mismatchRSAKeyPEM, rsaCertPEM, t)
 
-	tests := []struct {
-		name      string
+	tests := map[string]struct {
 		params    map[string]interface{}
 		expected  *v1.Secret
 		expectErr bool
 	}{
-		{
-			name: "test-valid-tls-secret",
+		"test-valid-tls-secret": {
 			params: map[string]interface{}{
 				"name": "foo",
 				"key":  validKeyPath,
@@ -147,8 +145,7 @@ func TestSecretForTLSGenerate(t *testing.T) {
 			},
 			expectErr: false,
 		},
-		{
-			name: "test-valid-tls-secret-append-hash",
+		"test-valid-tls-secret-append-hash": {
 			params: map[string]interface{}{
 				"name":        "foo",
 				"key":         validKeyPath,
@@ -167,8 +164,7 @@ func TestSecretForTLSGenerate(t *testing.T) {
 			},
 			expectErr: false,
 		},
-		{
-			name: "test-invalid-key-pair",
+		"test-invalid-key-pair": {
 			params: map[string]interface{}{
 				"name": "foo",
 				"key":  invalidKeyPath,
@@ -186,8 +182,7 @@ func TestSecretForTLSGenerate(t *testing.T) {
 			},
 			expectErr: true,
 		},
-		{
-			name: "test-mismatched-key-pair",
+		"test-mismatched-key-pair": {
 			params: map[string]interface{}{
 				"name": "foo",
 				"key":  mismatchKeyPath,
@@ -205,8 +200,7 @@ func TestSecretForTLSGenerate(t *testing.T) {
 			},
 			expectErr: true,
 		},
-		{
-			name: "test-missing-required-param",
+		"test-missing-required-param": {
 			params: map[string]interface{}{
 				"name": "foo",
 				"key":  "/tmp/foo.key",
@@ -216,18 +210,16 @@ func TestSecretForTLSGenerate(t *testing.T) {
 	}
 
 	generator := SecretForTLSGeneratorV1{}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			obj, err := generator.Generate(tt.params)
-			if !tt.expectErr && err != nil {
-				t.Errorf("unexpected error: %v", err)
-			}
-			if tt.expectErr && err != nil {
-				return
-			}
-			if !reflect.DeepEqual(obj.(*v1.Secret), tt.expected) {
-				t.Errorf("\nexpected:\n%#v\nsaw:\n%#v", tt.expected, obj.(*v1.Secret))
-			}
-		})
+	for _, test := range tests {
+		obj, err := generator.Generate(test.params)
+		if !test.expectErr && err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+		if test.expectErr && err != nil {
+			continue
+		}
+		if !reflect.DeepEqual(obj.(*v1.Secret), test.expected) {
+			t.Errorf("\nexpected:\n%#v\nsaw:\n%#v", test.expected, obj.(*v1.Secret))
+		}
 	}
 }

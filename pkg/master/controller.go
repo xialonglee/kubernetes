@@ -48,7 +48,6 @@ const kubernetesServiceName = "kubernetes"
 type Controller struct {
 	ServiceClient   coreclient.ServicesGetter
 	NamespaceClient coreclient.NamespacesGetter
-	EventClient     coreclient.EventsGetter
 
 	ServiceClusterIPRegistry rangeallocation.RangeRegistry
 	ServiceClusterIPInterval time.Duration
@@ -78,16 +77,10 @@ type Controller struct {
 }
 
 // NewBootstrapController returns a controller for watching the core capabilities of the master
-func (c *completedConfig) NewBootstrapController(legacyRESTStorage corerest.LegacyRESTStorage, serviceClient coreclient.ServicesGetter, nsClient coreclient.NamespacesGetter, eventClient coreclient.EventsGetter) *Controller {
-	_, publicServicePort, err := c.GenericConfig.SecureServing.HostPort()
-	if err != nil {
-		glog.Fatalf("failed to get listener address: %v", err)
-	}
-
+func (c *completedConfig) NewBootstrapController(legacyRESTStorage corerest.LegacyRESTStorage, serviceClient coreclient.ServicesGetter, nsClient coreclient.NamespacesGetter) *Controller {
 	return &Controller{
 		ServiceClient:   serviceClient,
 		NamespaceClient: nsClient,
-		EventClient:     eventClient,
 
 		EndpointReconciler: c.ExtraConfig.EndpointReconcilerConfig.Reconciler,
 		EndpointInterval:   c.ExtraConfig.EndpointReconcilerConfig.Interval,
@@ -109,7 +102,7 @@ func (c *completedConfig) NewBootstrapController(legacyRESTStorage corerest.Lega
 		ServicePort:               c.ExtraConfig.APIServerServicePort,
 		ExtraServicePorts:         c.ExtraConfig.ExtraServicePorts,
 		ExtraEndpointPorts:        c.ExtraConfig.ExtraEndpointPorts,
-		PublicServicePort:         publicServicePort,
+		PublicServicePort:         c.GenericConfig.ReadWritePort,
 		KubernetesServiceNodePort: c.ExtraConfig.KubernetesServiceNodePort,
 	}
 }
@@ -131,8 +124,8 @@ func (c *Controller) Start() {
 		return
 	}
 
-	repairClusterIPs := servicecontroller.NewRepair(c.ServiceClusterIPInterval, c.ServiceClient, c.EventClient, &c.ServiceClusterIPRange, c.ServiceClusterIPRegistry)
-	repairNodePorts := portallocatorcontroller.NewRepair(c.ServiceNodePortInterval, c.ServiceClient, c.EventClient, c.ServiceNodePortRange, c.ServiceNodePortRegistry)
+	repairClusterIPs := servicecontroller.NewRepair(c.ServiceClusterIPInterval, c.ServiceClient, &c.ServiceClusterIPRange, c.ServiceClusterIPRegistry)
+	repairNodePorts := portallocatorcontroller.NewRepair(c.ServiceNodePortInterval, c.ServiceClient, c.ServiceNodePortRange, c.ServiceNodePortRegistry)
 
 	// run all of the controllers once prior to returning from Start.
 	if err := repairClusterIPs.RunOnce(); err != nil {
@@ -157,22 +150,7 @@ func (c *Controller) Stop() {
 		c.runner.Stop()
 	}
 	endpointPorts := createEndpointPortSpec(c.PublicServicePort, "https", c.ExtraEndpointPorts)
-	finishedReconciling := make(chan struct{})
-	go func() {
-		defer close(finishedReconciling)
-		glog.Infof("Shutting down kubernetes service endpoint reconciler")
-		if err := c.EndpointReconciler.StopReconciling("kubernetes", c.PublicIP, endpointPorts); err != nil {
-			glog.Error(err)
-		}
-	}()
-
-	select {
-	case <-finishedReconciling:
-		// done
-	case <-time.After(2 * c.EndpointInterval):
-		// don't block server shutdown forever if we can't reach etcd to remove ourselves
-		glog.Warning("StopReconciling() timed out")
-	}
+	c.EndpointReconciler.StopReconciling("kubernetes", c.PublicIP, endpointPorts)
 }
 
 // RunKubernetesNamespaces periodically makes sure that all internal namespaces exist
@@ -180,7 +158,7 @@ func (c *Controller) RunKubernetesNamespaces(ch chan struct{}) {
 	wait.Until(func() {
 		// Loop the system namespace list, and create them if they do not exist
 		for _, ns := range c.SystemNamespaces {
-			if err := createNamespaceIfNeeded(c.NamespaceClient, ns); err != nil {
+			if err := c.CreateNamespaceIfNeeded(ns); err != nil {
 				runtime.HandleError(fmt.Errorf("unable to create required kubernetes system namespace %s: %v", ns, err))
 			}
 		}
@@ -205,7 +183,7 @@ func (c *Controller) UpdateKubernetesService(reconcile bool) error {
 	// TODO: when it becomes possible to change this stuff,
 	// stop polling and start watching.
 	// TODO: add endpoints of all replicas, not just the elected master.
-	if err := createNamespaceIfNeeded(c.NamespaceClient, metav1.NamespaceDefault); err != nil {
+	if err := c.CreateNamespaceIfNeeded(metav1.NamespaceDefault); err != nil {
 		return err
 	}
 
@@ -218,6 +196,25 @@ func (c *Controller) UpdateKubernetesService(reconcile bool) error {
 		return err
 	}
 	return nil
+}
+
+// CreateNamespaceIfNeeded will create a namespace if it doesn't already exist
+func (c *Controller) CreateNamespaceIfNeeded(ns string) error {
+	if _, err := c.NamespaceClient.Namespaces().Get(ns, metav1.GetOptions{}); err == nil {
+		// the namespace already exists
+		return nil
+	}
+	newNs := &api.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      ns,
+			Namespace: "",
+		},
+	}
+	_, err := c.NamespaceClient.Namespaces().Create(newNs)
+	if err != nil && errors.IsAlreadyExists(err) {
+		err = nil
+	}
+	return err
 }
 
 // createPortAndServiceSpec creates an array of service ports.
@@ -277,7 +274,7 @@ func (c *Controller) CreateOrUpdateMasterServiceIfNeeded(serviceName string, ser
 			// maintained by this code, not by the pod selector
 			Selector:        nil,
 			ClusterIP:       serviceIP.String(),
-			SessionAffinity: api.ServiceAffinityNone,
+			SessionAffinity: api.ServiceAffinityClientIP,
 			Type:            serviceType,
 		},
 	}

@@ -29,7 +29,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
-	imageutils "k8s.io/kubernetes/test/utils/image"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -115,7 +114,7 @@ func ensurePodsAreRemovedWhenNamespaceIsDeleted(f *framework.Framework) {
 			Containers: []v1.Container{
 				{
 					Name:  "nginx",
-					Image: imageutils.GetPauseImageName(),
+					Image: framework.GetPauseImageName(f.ClientSet),
 				},
 			},
 		},
@@ -136,7 +135,7 @@ func ensurePodsAreRemovedWhenNamespaceIsDeleted(f *framework.Framework) {
 			Containers: []v1.Container{
 				{
 					Name:  "nginx",
-					Image: imageutils.GetPauseImageName(),
+					Image: framework.GetPauseImageName(f.ClientSet),
 				},
 			},
 		},
@@ -262,18 +261,10 @@ var _ = SIGDescribe("Namespaces [Serial]", func() {
 
 	f := framework.NewDefaultFramework("namespaces")
 
-	/*
-		Testname: namespace-deletion-removes-pods
-		Description: Ensure that if a namespace is deleted then all pods are removed from that namespace.
-	*/
-	framework.ConformanceIt("should ensure that all pods are removed when a namespace is deleted",
+	It("should ensure that all pods are removed when a namespace is deleted.",
 		func() { ensurePodsAreRemovedWhenNamespaceIsDeleted(f) })
 
-	/*
-		Testname: namespace-deletion-removes-services
-		Description: Ensure that if a namespace is deleted then all services are removed from that namespace.
-	*/
-	framework.ConformanceIt("should ensure that all services are removed when a namespace is deleted",
+	It("should ensure that all services are removed when a namespace is deleted.",
 		func() { ensureServicesAreRemovedWhenNamespaceIsDeleted(f) })
 
 	It("should delete fast enough (90 percent of 100 namespaces in 150 seconds)",

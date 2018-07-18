@@ -17,13 +17,13 @@ limitations under the License.
 package config
 
 import (
+	"bytes"
 	"io/ioutil"
 	"os"
 	"testing"
 
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
-	"k8s.io/kubernetes/pkg/kubectl/genericclioptions"
 )
 
 type getContextsTest struct {
@@ -157,11 +157,11 @@ func (test getContextsTest) run(t *testing.T) {
 	pathOptions := clientcmd.NewDefaultPathOptions()
 	pathOptions.GlobalFile = fakeKubeFile.Name()
 	pathOptions.EnvVar = ""
-	streams, _, buf, _ := genericclioptions.NewTestIOStreams()
+	buf := bytes.NewBuffer([]byte{})
 	options := GetContextsOptions{
 		configAccess: pathOptions,
 	}
-	cmd := NewCmdConfigGetContexts(streams, options.configAccess)
+	cmd := NewCmdConfigGetContexts(buf, options.configAccess)
 	if test.nameOnly {
 		cmd.Flags().Set("output", "name")
 	}

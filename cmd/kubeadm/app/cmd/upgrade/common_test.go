@@ -20,12 +20,12 @@ import (
 	"bytes"
 	"testing"
 
-	kubeadmapi "k8s.io/kubernetes/cmd/kubeadm/app/apis/kubeadm"
+	kubeadmapiext "k8s.io/kubernetes/cmd/kubeadm/app/apis/kubeadm/v1alpha1"
 )
 
 func TestPrintConfiguration(t *testing.T) {
 	var tests = []struct {
-		cfg           *kubeadmapi.InitConfiguration
+		cfg           *kubeadmapiext.MasterConfiguration
 		buf           *bytes.Buffer
 		expectedBytes []byte
 	}{
@@ -34,48 +34,77 @@ func TestPrintConfiguration(t *testing.T) {
 			expectedBytes: []byte(""),
 		},
 		{
-			cfg: &kubeadmapi.InitConfiguration{
+			cfg: &kubeadmapiext.MasterConfiguration{
 				KubernetesVersion: "v1.7.1",
-				Etcd: kubeadmapi.Etcd{
-					Local: &kubeadmapi.LocalEtcd{
-						DataDir: "/some/path",
-					},
-				},
 			},
 			expectedBytes: []byte(`[upgrade/config] Configuration used:
 	api:
 	  advertiseAddress: ""
 	  bindPort: 0
-	  controlPlaneEndpoint: ""
-	apiVersion: kubeadm.k8s.io/v1alpha3
-	auditPolicy:
-	  logDir: ""
-	  path: ""
 	certificatesDir: ""
+	cloudProvider: ""
 	etcd:
-	  local:
-	    dataDir: /some/path
-	    image: ""
+	  caFile: ""
+	  certFile: ""
+	  dataDir: ""
+	  endpoints: null
+	  image: ""
+	  keyFile: ""
 	imageRepository: ""
-	kind: InitConfiguration
+	kubeProxy: {}
+	kubeletConfiguration: {}
 	kubernetesVersion: v1.7.1
 	networking:
 	  dnsDomain: ""
 	  podSubnet: ""
 	  serviceSubnet: ""
-	nodeRegistration: {}
+	nodeName: ""
+	token: ""
 	unifiedControlPlaneImage: ""
 `),
 		},
 		{
-			cfg: &kubeadmapi.InitConfiguration{
+			cfg: &kubeadmapiext.MasterConfiguration{
 				KubernetesVersion: "v1.7.1",
-				Networking: kubeadmapi.Networking{
+				Networking: kubeadmapiext.Networking{
 					ServiceSubnet: "10.96.0.1/12",
 				},
-				Etcd: kubeadmapi.Etcd{
-					External: &kubeadmapi.ExternalEtcd{
-						Endpoints: []string{"https://one-etcd-instance:2379"},
+			},
+			expectedBytes: []byte(`[upgrade/config] Configuration used:
+	api:
+	  advertiseAddress: ""
+	  bindPort: 0
+	certificatesDir: ""
+	cloudProvider: ""
+	etcd:
+	  caFile: ""
+	  certFile: ""
+	  dataDir: ""
+	  endpoints: null
+	  image: ""
+	  keyFile: ""
+	imageRepository: ""
+	kubeProxy: {}
+	kubeletConfiguration: {}
+	kubernetesVersion: v1.7.1
+	networking:
+	  dnsDomain: ""
+	  podSubnet: ""
+	  serviceSubnet: 10.96.0.1/12
+	nodeName: ""
+	token: ""
+	unifiedControlPlaneImage: ""
+`),
+		},
+		{
+			cfg: &kubeadmapiext.MasterConfiguration{
+				KubernetesVersion: "v1.7.1",
+				Etcd: kubeadmapiext.Etcd{
+					SelfHosted: &kubeadmapiext.SelfHostedEtcd{
+						CertificatesDir:    "/var/foo",
+						ClusterServiceName: "foo",
+						EtcdVersion:        "v0.1.0",
+						OperatorVersion:    "v0.1.0",
 					},
 				},
 			},
@@ -83,27 +112,30 @@ func TestPrintConfiguration(t *testing.T) {
 	api:
 	  advertiseAddress: ""
 	  bindPort: 0
-	  controlPlaneEndpoint: ""
-	apiVersion: kubeadm.k8s.io/v1alpha3
-	auditPolicy:
-	  logDir: ""
-	  path: ""
 	certificatesDir: ""
+	cloudProvider: ""
 	etcd:
-	  external:
-	    caFile: ""
-	    certFile: ""
-	    endpoints:
-	    - https://one-etcd-instance:2379
-	    keyFile: ""
+	  caFile: ""
+	  certFile: ""
+	  dataDir: ""
+	  endpoints: null
+	  image: ""
+	  keyFile: ""
+	  selfHosted:
+	    certificatesDir: /var/foo
+	    clusterServiceName: foo
+	    etcdVersion: v0.1.0
+	    operatorVersion: v0.1.0
 	imageRepository: ""
-	kind: InitConfiguration
+	kubeProxy: {}
+	kubeletConfiguration: {}
 	kubernetesVersion: v1.7.1
 	networking:
 	  dnsDomain: ""
 	  podSubnet: ""
-	  serviceSubnet: 10.96.0.1/12
-	nodeRegistration: {}
+	  serviceSubnet: ""
+	nodeName: ""
+	token: ""
 	unifiedControlPlaneImage: ""
 `),
 		},

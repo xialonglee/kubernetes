@@ -17,35 +17,29 @@ limitations under the License.
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
+
+	"encoding/json"
 
 	"github.com/golang/glog"
 	"github.com/spf13/cobra"
-
 	"k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	"k8s.io/apimachinery/pkg/util/validation"
-	"k8s.io/kubernetes/pkg/api/legacyscheme"
+	"k8s.io/kubernetes/pkg/kubectl"
 	"k8s.io/kubernetes/pkg/kubectl/cmd/templates"
 	cmdutil "k8s.io/kubernetes/pkg/kubectl/cmd/util"
-	"k8s.io/kubernetes/pkg/kubectl/genericclioptions"
-	"k8s.io/kubernetes/pkg/kubectl/genericclioptions/printers"
-	"k8s.io/kubernetes/pkg/kubectl/genericclioptions/resource"
-	"k8s.io/kubernetes/pkg/kubectl/scheme"
+	"k8s.io/kubernetes/pkg/kubectl/resource"
 	"k8s.io/kubernetes/pkg/kubectl/util/i18n"
 	taintutils "k8s.io/kubernetes/pkg/util/taints"
 )
 
 // TaintOptions have the data required to perform the taint operation
 type TaintOptions struct {
-	PrintFlags *genericclioptions.PrintFlags
-	ToPrinter  func(string) (printers.ResourcePrinter, error)
-
 	resources      []string
 	taintsToAdd    []v1.Taint
 	taintsToRemove []v1.Taint
@@ -53,10 +47,9 @@ type TaintOptions struct {
 	selector       string
 	overwrite      bool
 	all            bool
-
-	ClientForMapping func(*meta.RESTMapping) (resource.RESTClient, error)
-
-	genericclioptions.IOStreams
+	f              cmdutil.Factory
+	out            io.Writer
+	cmd            *cobra.Command
 }
 
 var (
@@ -85,22 +78,19 @@ var (
 		kubectl taint node -l myLabel=X  dedicated=foo:PreferNoSchedule`))
 )
 
-func NewCmdTaint(f cmdutil.Factory, streams genericclioptions.IOStreams) *cobra.Command {
-	options := &TaintOptions{
-		PrintFlags: genericclioptions.NewPrintFlags("tainted").WithTypeSetter(scheme.Scheme),
-		IOStreams:  streams,
-	}
+func NewCmdTaint(f cmdutil.Factory, out io.Writer) *cobra.Command {
+	options := &TaintOptions{}
 
 	validArgs := []string{"node"}
+	argAliases := kubectl.ResourceAliases(validArgs)
 
 	cmd := &cobra.Command{
-		Use: "taint NODE NAME KEY_1=VAL_1:TAINT_EFFECT_1 ... KEY_N=VAL_N:TAINT_EFFECT_N",
-		DisableFlagsInUseLine: true,
+		Use:     "taint NODE NAME KEY_1=VAL_1:TAINT_EFFECT_1 ... KEY_N=VAL_N:TAINT_EFFECT_N",
 		Short:   i18n.T("Update the taints on one or more nodes"),
 		Long:    fmt.Sprintf(taintLong, validation.DNS1123SubdomainMaxLength, validation.LabelValueMaxLength),
 		Example: taintExample,
 		Run: func(cmd *cobra.Command, args []string) {
-			if err := options.Complete(f, cmd, args); err != nil {
+			if err := options.Complete(f, out, cmd, args); err != nil {
 				cmdutil.CheckErr(err)
 			}
 			if err := options.Validate(); err != nil {
@@ -110,21 +100,22 @@ func NewCmdTaint(f cmdutil.Factory, streams genericclioptions.IOStreams) *cobra.
 				cmdutil.CheckErr(err)
 			}
 		},
-		ValidArgs: validArgs,
+		ValidArgs:  validArgs,
+		ArgAliases: argAliases,
 	}
-
-	options.PrintFlags.AddFlags(cmd)
-
 	cmdutil.AddValidateFlags(cmd)
-	cmd.Flags().StringVarP(&options.selector, "selector", "l", options.selector, "Selector (label query) to filter on, supports '=', '==', and '!='.(e.g. -l key1=value1,key2=value2)")
-	cmd.Flags().BoolVar(&options.overwrite, "overwrite", options.overwrite, "If true, allow taints to be overwritten, otherwise reject taint updates that overwrite existing taints.")
-	cmd.Flags().BoolVar(&options.all, "all", options.all, "Select all nodes in the cluster")
+
+	cmdutil.AddPrinterFlags(cmd)
+	cmdutil.AddInclude3rdPartyFlags(cmd)
+	cmd.Flags().StringVarP(&options.selector, "selector", "l", "", "Selector (label query) to filter on, supports '=', '==', and '!='.(e.g. -l key1=value1,key2=value2)")
+	cmd.Flags().BoolVar(&options.overwrite, "overwrite", false, "If true, allow taints to be overwritten, otherwise reject taint updates that overwrite existing taints.")
+	cmd.Flags().BoolVar(&options.all, "all", false, "Select all nodes in the cluster")
 	return cmd
 }
 
 // Complete adapts from the command line args and factory to the data required.
-func (o *TaintOptions) Complete(f cmdutil.Factory, cmd *cobra.Command, args []string) (err error) {
-	namespace, _, err := f.ToRawKubeConfigLoader().Namespace()
+func (o *TaintOptions) Complete(f cmdutil.Factory, out io.Writer, cmd *cobra.Command, args []string) (err error) {
+	namespace, _, err := f.DefaultNamespace()
 	if err != nil {
 		return err
 	}
@@ -148,11 +139,6 @@ func (o *TaintOptions) Complete(f cmdutil.Factory, cmd *cobra.Command, args []st
 		}
 	}
 
-	o.ToPrinter = func(operation string) (printers.ResourcePrinter, error) {
-		o.PrintFlags.NamePrintFlags.Operation = operation
-		return o.PrintFlags.ToPrinter()
-	}
-
 	if len(o.resources) < 1 {
 		return fmt.Errorf("one or more resources must be specified as <resource> <name>")
 	}
@@ -164,7 +150,7 @@ func (o *TaintOptions) Complete(f cmdutil.Factory, cmd *cobra.Command, args []st
 		return cmdutil.UsageErrorf(cmd, err.Error())
 	}
 	o.builder = f.NewBuilder().
-		WithScheme(legacyscheme.Scheme).
+		Internal().
 		ContinueOnError().
 		NamespaceParam(namespace).DefaultNamespace()
 	if o.selector != "" {
@@ -179,8 +165,9 @@ func (o *TaintOptions) Complete(f cmdutil.Factory, cmd *cobra.Command, args []st
 	o.builder = o.builder.LabelSelectorParam(o.selector).
 		Flatten().
 		Latest()
-
-	o.ClientForMapping = f.ClientForMapping
+	o.f = f
+	o.out = out
+	o.cmd = cmd
 	return nil
 }
 
@@ -204,7 +191,7 @@ func (o TaintOptions) validateFlags() error {
 // Validate checks to the TaintOptions to see if there is sufficient information run the command.
 func (o TaintOptions) Validate() error {
 	resourceType := strings.ToLower(o.resources[0])
-	validResources, isValidResource := []string{"node", "nodes"}, false
+	validResources, isValidResource := append(kubectl.ResourceAliases([]string{"node"}), "node"), false
 	for _, validResource := range validResources {
 		if resourceType == validResource {
 			isValidResource = true
@@ -246,10 +233,9 @@ func (o TaintOptions) RunTaint() error {
 			return err
 		}
 
-		obj, err := legacyscheme.Scheme.ConvertToVersion(info.Object, v1.SchemeGroupVersion)
+		obj, err := info.Mapping.ConvertToVersion(info.Object, info.Mapping.GroupVersionKind.GroupVersion())
 		if err != nil {
-			glog.V(1).Info(err)
-			return fmt.Errorf("object was not a node.v1.: %T", info.Object)
+			return err
 		}
 		name, namespace := info.Name, info.Namespace
 		oldData, err := json.Marshal(obj)
@@ -271,7 +257,7 @@ func (o TaintOptions) RunTaint() error {
 		}
 
 		mapping := info.ResourceMapping()
-		client, err := o.ClientForMapping(mapping)
+		client, err := o.f.ClientForMapping(mapping)
 		if err != nil {
 			return err
 		}
@@ -286,13 +272,15 @@ func (o TaintOptions) RunTaint() error {
 		if err != nil {
 			return err
 		}
-		outputObj = cmdutil.AsDefaultVersionedOrOriginal(outputObj, mapping)
 
-		printer, err := o.ToPrinter(operation)
-		if err != nil {
-			return err
+		mapper, _ := o.f.Object()
+		outputFormat := cmdutil.GetFlagString(o.cmd, "output")
+		if outputFormat != "" {
+			return o.f.PrintObject(o.cmd, false, mapper, outputObj, o.out)
 		}
-		return printer.PrintObj(outputObj, o.Out)
+
+		o.f.PrintSuccess(mapper, false, o.out, info.Mapping.Resource, info.Name, false, operation)
+		return nil
 	})
 }
 

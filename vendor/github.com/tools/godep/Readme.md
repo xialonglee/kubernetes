@@ -1,8 +1,4 @@
-# Godep - Archived
-
-Please use [dep](https://github.com/golang/dep) or another tool instead.
-
-The rest of this readme is preserved for those that may still need its contents.
+## Godep
 
 [![Build Status](https://travis-ci.org/tools/godep.svg)](https://travis-ci.org/tools/godep)
 
@@ -10,23 +6,16 @@ The rest of this readme is preserved for those that may still need its contents.
 
 godep helps build packages reproducibly by fixing their dependencies.
 
-This tool assumes you are working in a standard Go workspace, as described [here](http://golang.org/doc/code.html). We
-expect godep to build on Go 1.4* or newer, but you can use it on any project that works with Go 1 or newer.
+This tool assumes you are working in a standard Go workspace, as described in
+http://golang.org/doc/code.html. We expect godep to build on Go 1.4* or newer,
+but you can use it on any project that works with Go 1 or newer.
 
 Please check the [FAQ](FAQ.md) if you have a question.
-
-## Golang Dep
-
-The Go community now has the [dep](https://github.com/golang/dep) project to
-manage dependencies. Please consider trying to migrate from Godep to dep. If there
-is an issue preventing you from migrating please file an issue with dep so the
-problem can be corrected. Godep will continue to be supported for some time but
-is considered to be in a state of support rather than active feature development.
 
 ## Install
 
 ```console
-go get github.com/tools/godep
+$ go get github.com/tools/godep
 ```
 
 ## How to use godep with a new project
@@ -35,7 +24,7 @@ Assuming you've got everything working already, so you can build your project
 with `go install` and test it with `go test`, it's one command to start using:
 
 ```console
-godep save
+$ godep save
 ```
 
 This will save a list of dependencies to the file `Godeps/Godeps.json` and copy
@@ -75,6 +64,7 @@ time** you run a Go-related command, you wrap it in one of these two ways:
 
 `-r` isn't necessary with go1.6+ and isn't allowed.
 
+
 ## Additional Operations
 
 ### Restore
@@ -84,8 +74,6 @@ package versions specified in `Godeps/Godeps.json` to your `$GOPATH`. This
 modifies the state of packages in your `$GOPATH`. NOTE: `godep restore` leaves
 git repositories in a detached state. `go1.6`+ no longer checks out the master
 branch when doing a `go get`, see [here](https://github.com/golang/go/commit/42206598671a44111c8f726ad33dc7b265bdf669).
-
-> If you run `godep restore` in your main `$GOPATH` `go get -u` will fail on packages that are behind master.
 
 Please see the [FAQ](https://github.com/tools/godep/blob/master/FAQ.md#should-i-use-godep-restore) section about restore.
 
@@ -108,10 +96,11 @@ To add a new package foo/bar, do this:
 To update a package from your `$GOPATH`, do this:
 
 1. Run `go get -u foo/bar`
-1. Run `godep update foo/bar`.
+1. Run `godep update foo/bar`. (You can use the `...` wildcard, for example
+`godep update foo/...`).
 
-You can use the `...` wildcard, for example `godep update foo/...`. Before comitting the change, you'll probably want to
-inspect the changes to Godeps, for example with `git diff`, and make sure it looks reasonable.
+Before comitting the change, you'll probably want to inspect the changes to
+Godeps, for example with `git diff`, and make sure it looks reasonable.
 
 ## Multiple Packages
 
@@ -120,21 +109,22 @@ running commands like `go test ./...`, `go install ./...`, and `go fmt ./...`.
 Similarly, you should run `godep save ./...` to capture the dependencies of all
 packages in your application.
 
+
 ## File Format
 
 Godeps is a json file with the following structure:
 
 ```go
 type Godeps struct {
-  ImportPath   string
-  GoVersion    string   // Abridged output of 'go version'.
-  GodepVersion string   // Abridged output of 'godep version'
-  Packages     []string // Arguments to godep save, if any.
-  Deps         []struct {
-    ImportPath string
-    Comment    string // Description of commit, if present.
-    Rev        string // VCS-specific commit ID.
-  }
+	ImportPath   string
+	GoVersion    string   // Abridged output of 'go version'.
+	GodepVersion string   // Abridged output of 'godep version'
+	Packages     []string // Arguments to godep save, if any.
+	Deps         []struct {
+		ImportPath string
+		Comment    string // Description of commit, if present.
+		Rev        string // VCS-specific commit ID.
+	}
 }
 ```
 
@@ -142,18 +132,18 @@ Example Godeps:
 
 ```json
 {
-  "ImportPath": "github.com/kr/hk",
-  "GoVersion": "go1.6",
-  "Deps": [
-    {
-      "ImportPath": "code.google.com/p/go-netrc/netrc",
-      "Rev": "28676070ab99"
-    },
-    {
-      "ImportPath": "github.com/kr/binarydist",
-      "Rev": "3380ade90f8b0dfa3e363fd7d7e941fa857d0d13"
-    }
-  ]
+	"ImportPath": "github.com/kr/hk",
+	"GoVersion": "go1.6",
+	"Deps": [
+		{
+			"ImportPath": "code.google.com/p/go-netrc/netrc",
+			"Rev": "28676070ab99"
+		},
+		{
+			"ImportPath": "github.com/kr/binarydist",
+			"Rev": "3380ade90f8b0dfa3e363fd7d7e941fa857d0d13"
+		}
+	]
 }
 ```
 

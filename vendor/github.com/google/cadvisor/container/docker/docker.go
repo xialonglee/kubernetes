@@ -29,27 +29,19 @@ import (
 	"github.com/google/cadvisor/machine"
 )
 
-var dockerTimeout = 10 * time.Second
+const defaultTimeout = time.Second * 5
 
 func defaultContext() context.Context {
-	ctx, _ := context.WithTimeout(context.Background(), dockerTimeout)
+	ctx, _ := context.WithTimeout(context.Background(), defaultTimeout)
 	return ctx
 }
 
-func SetTimeout(timeout time.Duration) {
-	dockerTimeout = timeout
-}
-
 func Status() (v1.DockerStatus, error) {
-	return StatusWithContext(defaultContext())
-}
-
-func StatusWithContext(ctx context.Context) (v1.DockerStatus, error) {
 	client, err := Client()
 	if err != nil {
 		return v1.DockerStatus{}, fmt.Errorf("unable to communicate with docker daemon: %v", err)
 	}
-	dockerInfo, err := client.Info(ctx)
+	dockerInfo, err := client.Info(defaultContext())
 	if err != nil {
 		return v1.DockerStatus{}, err
 	}

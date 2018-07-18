@@ -39,8 +39,8 @@ func TestBuildArgumentListFromMap(t *testing.T) {
 			},
 			expected: []string{
 				"--admission-control=NamespaceLifecycle,LimitRanger",
-				"--allow-privileged=true",
 				"--insecure-bind-address=127.0.0.1",
+				"--allow-privileged=true",
 			},
 		},
 		{ // add an argument that is not in base
@@ -53,8 +53,8 @@ func TestBuildArgumentListFromMap(t *testing.T) {
 			},
 			expected: []string{
 				"--admission-control=NamespaceLifecycle,LimitRanger",
-				"--allow-privileged=true",
 				"--insecure-bind-address=127.0.0.1",
+				"--allow-privileged=true",
 			},
 		},
 		{ // allow empty strings in base
@@ -68,8 +68,8 @@ func TestBuildArgumentListFromMap(t *testing.T) {
 			},
 			expected: []string{
 				"--admission-control=NamespaceLifecycle,LimitRanger",
-				"--allow-privileged=true",
 				"--insecure-bind-address=127.0.0.1",
+				"--allow-privileged=true",
 				"--something-that-allows-empty-string=",
 			},
 		},
@@ -85,15 +85,17 @@ func TestBuildArgumentListFromMap(t *testing.T) {
 			},
 			expected: []string{
 				"--admission-control=NamespaceLifecycle,LimitRanger",
-				"--something-that-allows-empty-string=",
-				"--allow-privileged=true",
 				"--insecure-bind-address=127.0.0.1",
+				"--allow-privileged=true",
+				"--something-that-allows-empty-string=",
 			},
 		},
 	}
 
 	for _, rt := range tests {
 		actual := BuildArgumentListFromMap(rt.base, rt.overrides)
+		sort.Strings(actual)
+		sort.Strings(rt.expected)
 		if !reflect.DeepEqual(actual, rt.expected) {
 			t.Errorf("failed BuildArgumentListFromMap:\nexpected:\n%v\nsaw:\n%v", rt.expected, actual)
 		}

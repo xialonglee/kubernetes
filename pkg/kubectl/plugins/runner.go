@@ -17,12 +17,12 @@ limitations under the License.
 package plugins
 
 import (
+	"io"
 	"os"
 	"os/exec"
 	"strings"
 
 	"github.com/golang/glog"
-	"k8s.io/kubernetes/pkg/kubectl/genericclioptions"
 )
 
 // PluginRunner is capable of running a plugin in a given running context.
@@ -34,7 +34,9 @@ type PluginRunner interface {
 // in, out, and err streams, arguments and environment passed to it, and the
 // working directory.
 type RunningContext struct {
-	genericclioptions.IOStreams
+	In          io.Reader
+	Out         io.Writer
+	ErrOut      io.Writer
 	Args        []string
 	EnvProvider EnvProvider
 	WorkingDir  string

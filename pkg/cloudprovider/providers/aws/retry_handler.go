@@ -69,19 +69,16 @@ func (c *CrossRequestRetryDelay) BeforeSign(r *request.Request) {
 	}
 }
 
-// Return the operation name, for use in log messages and metrics
-func operationName(r *request.Request) string {
+// Return a user-friendly string describing the request, for use in log messages
+func describeRequest(r *request.Request) string {
+	service := r.ClientInfo.ServiceName
+
 	name := "?"
 	if r.Operation != nil {
 		name = r.Operation.Name
 	}
-	return name
-}
 
-// Return a user-friendly string describing the request, for use in log messages
-func describeRequest(r *request.Request) string {
-	service := r.ClientInfo.ServiceName
-	return service + "::" + operationName(r)
+	return service + "::" + name
 }
 
 // Added to the AfterRetry chain; called after any error
@@ -95,7 +92,6 @@ func (c *CrossRequestRetryDelay) AfterRetry(r *request.Request) {
 	}
 	if awsError.Code() == "RequestLimitExceeded" {
 		c.backoff.ReportError()
-		recordAWSThrottlesMetric(operationName(r))
 		glog.Warningf("Got RequestLimitExceeded error on AWS request (%s)",
 			describeRequest(r))
 	}

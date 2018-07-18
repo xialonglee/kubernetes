@@ -4,7 +4,6 @@ load(
     "@io_bazel_rules_go//go:def.bzl",
     "go_library",
 )
-load("//build:bindata.bzl", "go_bindata")
 
 go_library(
     name = "go_default_library",
@@ -19,17 +18,25 @@ go_library(
     ],
 )
 
-# IMPORTANT: if you make any changes here, you must also update hack/generate-bindata.sh.
-go_bindata(
+genrule(
     name = "bindata",
     srcs = [
-        "//test/e2e/testing-manifests:all-srcs",
-        "//test/fixtures:all-srcs",
+        "//examples:all-srcs",
         "//test/images:all-srcs",
+        "//test/fixtures:all-srcs",
+        "//test/e2e/testing-manifests:all-srcs",
     ],
     outs = ["bindata.go"],
-    compress = True,
-    include_metadata = False,
+    cmd = """
+$(location //vendor/github.com/jteeuwen/go-bindata/go-bindata:go-bindata) \
+  -nometadata -o "$(OUTS)" -pkg generated \
+  -prefix $$(pwd) \
+  -ignore .jpg -ignore .png -ignore .md \
+  $(SRCS)
+""",
+    tools = [
+        "//vendor/github.com/jteeuwen/go-bindata/go-bindata",
+    ],
 )
 
 filegroup(

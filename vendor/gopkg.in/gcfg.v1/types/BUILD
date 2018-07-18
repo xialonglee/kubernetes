@@ -9,7 +9,6 @@ go_library(
         "int.go",
         "scan.go",
     ],
-    importmap = "k8s.io/kubernetes/vendor/gopkg.in/gcfg.v1/types",
     importpath = "gopkg.in/gcfg.v1/types",
     visibility = ["//visibility:public"],
 )

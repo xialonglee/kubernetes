@@ -56,6 +56,9 @@ func (s *stateMemory) GetDefaultCPUSet() cpuset.CPUSet {
 }
 
 func (s *stateMemory) GetCPUSetOrDefault(containerID string) cpuset.CPUSet {
+	s.RLock()
+	defer s.RUnlock()
+
 	if res, ok := s.GetCPUSet(containerID); ok {
 		return res
 	}

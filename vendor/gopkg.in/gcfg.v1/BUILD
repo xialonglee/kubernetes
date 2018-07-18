@@ -10,7 +10,6 @@ go_library(
         "read.go",
         "set.go",
     ],
-    importmap = "k8s.io/kubernetes/vendor/gopkg.in/gcfg.v1",
     importpath = "gopkg.in/gcfg.v1",
     visibility = ["//visibility:public"],
     deps = [

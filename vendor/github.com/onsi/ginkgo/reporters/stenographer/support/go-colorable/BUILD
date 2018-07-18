@@ -4,14 +4,17 @@ go_library(
     name = "go_default_library",
     srcs = [
         "colorable_others.go",
-        "colorable_windows.go",
         "noncolorable.go",
-    ],
-    importmap = "k8s.io/kubernetes/vendor/github.com/onsi/ginkgo/reporters/stenographer/support/go-colorable",
+    ] + select({
+        "@io_bazel_rules_go//go/platform:windows_amd64": [
+            "colorable_windows.go",
+        ],
+        "//conditions:default": [],
+    }),
     importpath = "github.com/onsi/ginkgo/reporters/stenographer/support/go-colorable",
     visibility = ["//visibility:public"],
     deps = select({
-        "@io_bazel_rules_go//go/platform:windows": [
+        "@io_bazel_rules_go//go/platform:windows_amd64": [
             "//vendor/github.com/onsi/ginkgo/reporters/stenographer/support/go-isatty:go_default_library",
         ],
         "//conditions:default": [],

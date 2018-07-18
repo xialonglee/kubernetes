@@ -24,199 +24,169 @@ import (
 
 func TestEnforceVersionPolicies(t *testing.T) {
 	tests := []struct {
-		name                        string
 		vg                          *fakeVersionGetter
 		expectedMandatoryErrs       int
 		expectedSkippableErrs       int
 		allowExperimental, allowRCs bool
 		newK8sVersion               string
 	}{
-		{
-			name: "minor upgrade",
+		{ // everything ok
 			vg: &fakeVersionGetter{
-				clusterVersion: "v1.10.3",
-				kubeletVersion: "v1.10.3",
-				kubeadmVersion: "v1.10.5",
+				clusterVersion: "v1.8.3",
+				kubeletVersion: "v1.8.3",
+				kubeadmVersion: "v1.8.5",
 			},
-			newK8sVersion: "v1.10.5",
+			newK8sVersion: "v1.8.5",
 		},
-		{
-			name: "major upgrade",
+		{ // everything ok
 			vg: &fakeVersionGetter{
-				clusterVersion: "v1.10.3",
-				kubeletVersion: "v1.10.2",
-				kubeadmVersion: "v1.11.1",
+				clusterVersion: "v1.8.3",
+				kubeletVersion: "v1.8.2",
+				kubeadmVersion: "v1.9.1",
 			},
-			newK8sVersion: "v1.11.0",
+			newK8sVersion: "v1.9.0",
 		},
-		{
-			name: "downgrade",
+		{ // downgrades ok
 			vg: &fakeVersionGetter{
-				clusterVersion: "v1.10.3",
-				kubeletVersion: "v1.10.3",
-				kubeadmVersion: "v1.10.3",
+				clusterVersion: "v1.8.3",
+				kubeletVersion: "v1.8.3",
+				kubeadmVersion: "v1.8.3",
 			},
-			newK8sVersion: "v1.10.2",
+			newK8sVersion: "v1.8.2",
 		},
-		{
-			name: "same version upgrade",
+		{ // upgrades without bumping the version number ok
 			vg: &fakeVersionGetter{
-				clusterVersion: "v1.10.3",
-				kubeletVersion: "v1.10.3",
-				kubeadmVersion: "v1.10.3",
+				clusterVersion: "v1.8.3",
+				kubeletVersion: "v1.8.3",
+				kubeadmVersion: "v1.8.3",
 			},
-			newK8sVersion: "v1.10.3",
+			newK8sVersion: "v1.8.3",
 		},
-		{
-			name: "new version must be higher than v1.10.0",
+		{ // new version must be higher than v1.8.0
 			vg: &fakeVersionGetter{
-				clusterVersion: "v1.10.3",
-				kubeletVersion: "v1.10.3",
-				kubeadmVersion: "v1.10.3",
+				clusterVersion: "v1.8.3",
+				kubeletVersion: "v1.8.3",
+				kubeadmVersion: "v1.8.3",
 			},
-			newK8sVersion:         "v1.9.10",
-			expectedMandatoryErrs: 1, // version must be higher than v1.10.0
-			expectedSkippableErrs: 1, // can't upgrade old k8s with newer kubeadm
+			newK8sVersion:         "v1.7.10",
+			expectedMandatoryErrs: 1, // version must be higher than v1.8.0
 		},
-		{
-			name: "upgrading two minor versions in one go is not supported",
+		{ // upgrading two minor versions in one go is not supported
 			vg: &fakeVersionGetter{
-				clusterVersion: "v1.10.3",
-				kubeletVersion: "v1.10.3",
-				kubeadmVersion: "v1.12.0",
+				clusterVersion: "v1.8.3",
+				kubeletVersion: "v1.8.3",
+				kubeadmVersion: "v1.10.0",
 			},
-			newK8sVersion:         "v1.12.0",
+			newK8sVersion:         "v1.10.0",
 			expectedMandatoryErrs: 1, // can't upgrade two minor versions
 			expectedSkippableErrs: 1, // kubelet <-> apiserver skew too large
 		},
-		{
-			name: "downgrading two minor versions in one go is not supported",
-			vg: &fakeVersionGetter{
-				clusterVersion: "v1.12.3",
-				kubeletVersion: "v1.12.3",
-				kubeadmVersion: "v1.12.0",
-			},
-			newK8sVersion:         "v1.10.3",
-			expectedMandatoryErrs: 1, // can't downgrade two minor versions
-			expectedSkippableErrs: 1, // can't upgrade old k8s with newer kubeadm
-		},
-		{
-			name: "kubeadm version must be higher than the new kube version. However, patch version skews may be forced",
+		{ // downgrading two minor versions in one go is not supported
 			vg: &fakeVersionGetter{
 				clusterVersion: "v1.10.3",
 				kubeletVersion: "v1.10.3",
-				kubeadmVersion: "v1.10.3",
+				kubeadmVersion: "v1.10.0",
 			},
-			newK8sVersion:         "v1.10.5",
+			newK8sVersion:         "v1.8.3",
+			expectedMandatoryErrs: 1, // can't downgrade two minor versions
+		},
+		{ // kubeadm version must be higher than the new kube version. However, patch version skews may be forced
+			vg: &fakeVersionGetter{
+				clusterVersion: "v1.8.3",
+				kubeletVersion: "v1.8.3",
+				kubeadmVersion: "v1.8.3",
+			},
+			newK8sVersion:         "v1.8.5",
 			expectedSkippableErrs: 1,
 		},
-		{
-			name: "kubeadm version must be higher than the new kube version. Trying to upgrade k8s to a higher minor version than kubeadm itself should never be supported",
+		{ // kubeadm version must be higher than the new kube version. Trying to upgrade k8s to a higher minor version than kubeadm itself should never be supported
 			vg: &fakeVersionGetter{
-				clusterVersion: "v1.10.3",
-				kubeletVersion: "v1.10.3",
-				kubeadmVersion: "v1.10.3",
+				clusterVersion: "v1.8.3",
+				kubeletVersion: "v1.8.3",
+				kubeadmVersion: "v1.8.3",
 			},
-			newK8sVersion:         "v1.11.0",
+			newK8sVersion:         "v1.9.0",
 			expectedMandatoryErrs: 1,
 		},
-		{
-			name: "the maximum skew between the cluster version and the kubelet versions should be one minor version. This may be forced through though.",
+		{ // the maximum skew between the cluster version and the kubelet versions should be one minor version. This may be forced through though.
 			vg: &fakeVersionGetter{
-				clusterVersion: "v1.10.3",
-				kubeletVersion: "v1.9.8",
-				kubeadmVersion: "v1.11.0",
+				clusterVersion: "v1.8.3",
+				kubeletVersion: "v1.7.8",
+				kubeadmVersion: "v1.9.0",
 			},
-			newK8sVersion:         "v1.11.0",
+			newK8sVersion:         "v1.9.0",
 			expectedSkippableErrs: 1,
 		},
-		{
-			name: "experimental upgrades supported if the flag is set",
+		{ // experimental upgrades supported if the flag is set
 			vg: &fakeVersionGetter{
-				clusterVersion: "v1.10.3",
-				kubeletVersion: "v1.10.3",
-				kubeadmVersion: "v1.11.0-beta.1",
+				clusterVersion: "v1.8.3",
+				kubeletVersion: "v1.8.3",
+				kubeadmVersion: "v1.9.0-beta.1",
 			},
-			newK8sVersion:     "v1.11.0-beta.1",
+			newK8sVersion:     "v1.9.0-beta.1",
 			allowExperimental: true,
 		},
-		{
-			name: "release candidate upgrades supported if the flag is set",
+		{ // release candidate upgrades supported if the flag is set
 			vg: &fakeVersionGetter{
-				clusterVersion: "v1.10.3",
-				kubeletVersion: "v1.10.3",
-				kubeadmVersion: "v1.11.0-rc.1",
+				clusterVersion: "v1.8.3",
+				kubeletVersion: "v1.8.3",
+				kubeadmVersion: "v1.9.0-rc.1",
 			},
-			newK8sVersion: "v1.11.0-rc.1",
+			newK8sVersion: "v1.9.0-rc.1",
 			allowRCs:      true,
 		},
-		{
-			name: "release candidate upgrades supported if the flag is set",
+		{ // release candidate upgrades supported if the flag is set
 			vg: &fakeVersionGetter{
-				clusterVersion: "v1.10.3",
-				kubeletVersion: "v1.10.3",
-				kubeadmVersion: "v1.11.0-rc.1",
+				clusterVersion: "v1.8.3",
+				kubeletVersion: "v1.8.3",
+				kubeadmVersion: "v1.9.0-rc.1",
 			},
-			newK8sVersion:     "v1.11.0-rc.1",
+			newK8sVersion:     "v1.9.0-rc.1",
 			allowExperimental: true,
 		},
-		{
-			name: "the user should not be able to upgrade to an experimental version if they haven't opted into that",
+		{ // the user should not be able to upgrade to an experimental version if they haven't opted into that
 			vg: &fakeVersionGetter{
-				clusterVersion: "v1.10.3",
-				kubeletVersion: "v1.10.3",
-				kubeadmVersion: "v1.11.0-beta.1",
+				clusterVersion: "v1.8.3",
+				kubeletVersion: "v1.8.3",
+				kubeadmVersion: "v1.9.0-beta.1",
 			},
-			newK8sVersion:         "v1.11.0-beta.1",
+			newK8sVersion:         "v1.9.0-beta.1",
 			allowRCs:              true,
 			expectedSkippableErrs: 1,
 		},
-		{
-			name: "the user should not be able to upgrade to an release candidate version if they haven't opted into that",
+		{ // the user should not be able to upgrade to an release candidate version if they haven't opted into that
 			vg: &fakeVersionGetter{
-				clusterVersion: "v1.10.3",
-				kubeletVersion: "v1.10.3",
-				kubeadmVersion: "v1.11.0-rc.1",
+				clusterVersion: "v1.8.3",
+				kubeletVersion: "v1.8.3",
+				kubeadmVersion: "v1.9.0-rc.1",
 			},
-			newK8sVersion:         "v1.11.0-rc.1",
+			newK8sVersion:         "v1.9.0-rc.1",
 			expectedSkippableErrs: 1,
-		},
-		{
-			name: "the user can't use a newer minor version of kubeadm to upgrade an older version of kubeadm",
-			vg: &fakeVersionGetter{
-				clusterVersion: "v1.10.3",
-				kubeletVersion: "v1.10.3",
-				kubeadmVersion: "v1.11.0",
-			},
-			newK8sVersion:         "v1.10.6",
-			expectedSkippableErrs: 1, // can't upgrade old k8s with newer kubeadm
 		},
 	}
 
 	for _, rt := range tests {
-		t.Run(rt.name, func(t *testing.T) {
 
-			newK8sVer, err := version.ParseSemantic(rt.newK8sVersion)
-			if err != nil {
-				t.Fatalf("couldn't parse version %s: %v", rt.newK8sVersion, err)
-			}
+		newK8sVer, err := version.ParseSemantic(rt.newK8sVersion)
+		if err != nil {
+			t.Fatalf("couldn't parse version %s: %v", rt.newK8sVersion, err)
+		}
 
-			actualSkewErrs := EnforceVersionPolicies(rt.vg, rt.newK8sVersion, newK8sVer, rt.allowExperimental, rt.allowRCs)
-			if actualSkewErrs == nil {
-				// No errors were seen. Report unit test failure if we expected to see errors
-				if rt.expectedMandatoryErrs+rt.expectedSkippableErrs > 0 {
-					t.Errorf("failed TestEnforceVersionPolicies\n\texpected errors but got none")
-				}
-				// Otherwise, just move on with the next test
-				return
+		actualSkewErrs := EnforceVersionPolicies(rt.vg, rt.newK8sVersion, newK8sVer, rt.allowExperimental, rt.allowRCs)
+		if actualSkewErrs == nil {
+			// No errors were seen. Report unit test failure if we expected to see errors
+			if rt.expectedMandatoryErrs+rt.expectedSkippableErrs > 0 {
+				t.Errorf("failed TestEnforceVersionPolicies\n\texpected errors but got none")
 			}
+			// Otherwise, just move on with the next test
+			continue
+		}
 
-			if len(actualSkewErrs.Skippable) != rt.expectedSkippableErrs {
-				t.Errorf("failed TestEnforceVersionPolicies\n\texpected skippable errors: %d\n\tgot skippable errors: %d %v", rt.expectedSkippableErrs, len(actualSkewErrs.Skippable), *rt.vg)
-			}
-			if len(actualSkewErrs.Mandatory) != rt.expectedMandatoryErrs {
-				t.Errorf("failed TestEnforceVersionPolicies\n\texpected mandatory errors: %d\n\tgot mandatory errors: %d %v", rt.expectedMandatoryErrs, len(actualSkewErrs.Mandatory), *rt.vg)
-			}
-		})
+		if len(actualSkewErrs.Skippable) != rt.expectedSkippableErrs {
+			t.Errorf("failed TestEnforceVersionPolicies\n\texpected skippable errors: %d\n\tgot skippable errors: %d %v", rt.expectedSkippableErrs, len(actualSkewErrs.Skippable), *rt.vg)
+		}
+		if len(actualSkewErrs.Mandatory) != rt.expectedMandatoryErrs {
+			t.Errorf("failed TestEnforceVersionPolicies\n\texpected mandatory errors: %d\n\tgot mandatory errors: %d %v", rt.expectedMandatoryErrs, len(actualSkewErrs.Mandatory), *rt.vg)
+		}
 	}
 }

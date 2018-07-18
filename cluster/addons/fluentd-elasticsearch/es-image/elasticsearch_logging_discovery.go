@@ -20,7 +20,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -87,7 +86,7 @@ func main() {
 		serviceName = "elasticsearch-logging"
 	}
 
-	// Look for endpoints associated with the Elasticsearch logging service.
+	// Look for endpoints associated with the Elasticsearch loggging service.
 	// First wait for the service to become available.
 	for t := time.Now(); time.Since(t) < 5*time.Minute; time.Sleep(10 * time.Second) {
 		elasticsearch, err = client.Core().Services(namespace).Get(serviceName, metav1.GetOptions{})
@@ -105,7 +104,7 @@ func main() {
 	var endpoints *api.Endpoints
 	addrs := []string{}
 	// Wait for some endpoints.
-	count, _ := strconv.Atoi(os.Getenv("MINIMUM_MASTER_NODES"))
+	count := 0
 	for t := time.Now(); time.Since(t) < 5*time.Minute; time.Sleep(10 * time.Second) {
 		endpoints, err = client.Core().Endpoints(namespace).Get(serviceName, metav1.GetOptions{})
 		if err != nil {
@@ -116,6 +115,7 @@ func main() {
 		if len(addrs) > 0 && len(addrs) == count {
 			break
 		}
+		count = len(addrs)
 	}
 	// If there was an error finding endpoints then log a warning and quit.
 	if err != nil {

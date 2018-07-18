@@ -16,26 +16,21 @@ A database is required for the following:
 
 This directory stores [goose](https://bitbucket.org/liamstask/goose/) db migration scripts for various DB backends.
 Currently supported:
- - MySQL in mysql
- - PostgreSQL in pg
  - SQLite in sqlite
+ - PostgreSQL in pg
 
 ### Get goose
 
-    go get bitbucket.org/liamstask/goose/cmd/goose
+    go get https://bitbucket.org/liamstask/goose/
 
-### Use goose to start and terminate a MySQL DB
-To start a MySQL using goose:
+### Use goose to start and terminate a SQLite DB
+To start a SQLite DB using goose:
 
-    goose -path $GOPATH/src/github.com/cloudflare/cfssl/certdb/mysql up
+    goose -path $GOPATH/src/github.com/cloudflare/cfssl/certdb/sqlite up'
 
-To tear down a MySQL DB using goose
+To tear down a SQLite DB using goose
 
-    goose -path $GOPATH/src/github.com/cloudflare/cfssl/certdb/mysql down
-
-Note: the administration of MySQL DB is not included. We assume
-the databases being connected to are already created and access control
-is properly handled.
+    goose -path $GOPATH/src/github.com/cloudflare/cfssl/certdb/sqlite down
 
 ### Use goose to start and terminate a PostgreSQL DB
 To start a PostgreSQL using goose:
@@ -48,16 +43,7 @@ To tear down a PostgreSQL DB using goose
 
 Note: the administration of PostgreSQL DB is not included. We assume
 the databases being connected to are already created and access control
-is properly handled.
-
-### Use goose to start and terminate a SQLite DB
-To start a SQLite DB using goose:
-
-    goose -path $GOPATH/src/github.com/cloudflare/cfssl/certdb/sqlite up
-
-To tear down a SQLite DB using goose
-
-    goose -path $GOPATH/src/github.com/cloudflare/cfssl/certdb/sqlite down
+are properly handled.
 
 ## CFSSL Configuration
 
@@ -69,7 +55,4 @@ JSON dictionary:
 or
 
     {"driver":"postgres","data_source":"postgres://user:password@host/db"}
- 
-or
 
-    {"driver":"mysql","data_source":"user:password@tcp(hostname:3306)/db?parseTime=true"}

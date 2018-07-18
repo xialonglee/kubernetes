@@ -24,7 +24,6 @@ go_library(
         "types.go",
         "volume.go",
     ],
-    importmap = "k8s.io/kubernetes/vendor/github.com/docker/docker/api/types",
     importpath = "github.com/docker/docker/api/types",
     visibility = ["//visibility:public"],
     deps = [

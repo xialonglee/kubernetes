@@ -17,7 +17,6 @@ limitations under the License.
 package tunneler
 
 import (
-	"context"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -36,14 +35,14 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-type InstallSSHKey func(ctx context.Context, user string, data []byte) error
+type InstallSSHKey func(user string, data []byte) error
 
 type AddressFunc func() (addresses []string, err error)
 
 type Tunneler interface {
 	Run(AddressFunc)
 	Stop()
-	Dial(ctx context.Context, net, addr string) (net.Conn, error)
+	Dial(net, addr string) (net.Conn, error)
 	SecondsSinceSync() int64
 	SecondsSinceSSHKeySync() int64
 }
@@ -60,12 +59,7 @@ func TunnelSyncHealthChecker(tunneler Tunneler) func(req *http.Request) error {
 			return fmt.Errorf("Tunnel sync is taking too long: %d", lag)
 		}
 		sshKeyLag := tunneler.SecondsSinceSSHKeySync()
-		// Since we are syncing ssh-keys every 5 minutes, the allowed
-		// lag since last sync should be more than 2x higher than that
-		// to allow for single failure, which can always happen.
-		// For now set it to 3x, which is 15 minutes.
-		// For more details see: http://pr.k8s.io/59347
-		if sshKeyLag > 900 {
+		if sshKeyLag > 600 {
 			return fmt.Errorf("SSHKey sync is taking too long: %d", sshKeyLag)
 		}
 		return nil
@@ -149,8 +143,8 @@ func (c *SSHTunneler) Stop() {
 	}
 }
 
-func (c *SSHTunneler) Dial(ctx context.Context, net, addr string) (net.Conn, error) {
-	return c.tunnels.Dial(ctx, net, addr)
+func (c *SSHTunneler) Dial(net, addr string) (net.Conn, error) {
+	return c.tunnels.Dial(net, addr)
 }
 
 func (c *SSHTunneler) SecondsSinceSync() int64 {
@@ -181,7 +175,7 @@ func (c *SSHTunneler) installSSHKeySyncLoop(user, publicKeyfile string) {
 			glog.Errorf("Failed to encode public key: %v", err)
 			return
 		}
-		if err := c.InstallSSHKey(context.TODO(), user, keyData); err != nil {
+		if err := c.InstallSSHKey(user, keyData); err != nil {
 			glog.Errorf("Failed to install ssh key: %v", err)
 			return
 		}

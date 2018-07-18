@@ -2,16 +2,18 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library")
 
 go_library(
     name = "go_default_library",
-    srcs = [
-        "constants.go",
-        "ipvs.go",
-        "netlink.go",
-    ],
-    importmap = "k8s.io/kubernetes/vendor/github.com/docker/libnetwork/ipvs",
+    srcs = select({
+        "@io_bazel_rules_go//go/platform:linux_amd64": [
+            "constants.go",
+            "ipvs.go",
+            "netlink.go",
+        ],
+        "//conditions:default": [],
+    }),
     importpath = "github.com/docker/libnetwork/ipvs",
     visibility = ["//visibility:public"],
     deps = select({
-        "@io_bazel_rules_go//go/platform:linux": [
+        "@io_bazel_rules_go//go/platform:linux_amd64": [
             "//vendor/github.com/sirupsen/logrus:go_default_library",
             "//vendor/github.com/vishvananda/netlink/nl:go_default_library",
             "//vendor/github.com/vishvananda/netns:go_default_library",

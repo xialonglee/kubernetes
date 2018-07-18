@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
 # Copyright 2016 The Kubernetes Authors.
 #
@@ -19,6 +19,7 @@ set -o nounset
 set -o pipefail
 
 KUBE_ROOT=${KUBE_ROOT:-$(dirname "${BASH_SOURCE}")/..}
+source "${KUBE_ROOT}/cluster/kube-util.sh"
 source "${KUBE_ROOT}/cluster/clientbin.sh"
 
 # If KUBEADM_PATH isn't set, gather up the list of likely places and use ls

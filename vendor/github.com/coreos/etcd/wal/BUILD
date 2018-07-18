@@ -12,9 +12,12 @@ go_library(
         "util.go",
         "wal.go",
         "wal_unix.go",
-        "wal_windows.go",
-    ],
-    importmap = "k8s.io/kubernetes/vendor/github.com/coreos/etcd/wal",
+    ] + select({
+        "@io_bazel_rules_go//go/platform:windows_amd64": [
+            "wal_windows.go",
+        ],
+        "//conditions:default": [],
+    }),
     importpath = "github.com/coreos/etcd/wal",
     visibility = ["//visibility:public"],
     deps = [

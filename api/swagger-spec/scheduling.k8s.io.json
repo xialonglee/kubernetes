@@ -38,7 +38,8 @@
     "description": "APIGroup contains the name, the supported versions, and the preferred version of a group.",
     "required": [
      "name",
-     "versions"
+     "versions",
+     "serverAddressByClientCIDRs"
     ],
     "properties": {
      "kind": {

@@ -504,7 +504,7 @@ func (c *containerData) housekeepingTick(timer <-chan time.Time, longHousekeepin
 	err := c.updateStats()
 	if err != nil {
 		if c.allowErrorLogging() {
-			glog.Warningf("Failed to update stats for container \"%s\": %s", c.info.Name, err)
+			glog.Warning("Failed to update stats for container \"%s\": %s", c.info.Name, err)
 		}
 	}
 	// Log if housekeeping took too long.
@@ -615,12 +615,7 @@ func (c *containerData) updateStats() error {
 		}
 		return err
 	}
-
-	cInfo := info.ContainerInfo{
-		ContainerReference: ref,
-	}
-
-	err = c.memoryCache.AddStats(&cInfo, stats)
+	err = c.memoryCache.AddStats(ref, stats)
 	if err != nil {
 		return err
 	}

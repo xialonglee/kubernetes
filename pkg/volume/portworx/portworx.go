@@ -28,7 +28,7 @@ import (
 	"k8s.io/kubernetes/pkg/util/mount"
 	kstrings "k8s.io/kubernetes/pkg/util/strings"
 	"k8s.io/kubernetes/pkg/volume"
-	"k8s.io/kubernetes/pkg/volume/util"
+	"k8s.io/kubernetes/pkg/volume/util/volumehelper"
 )
 
 const (
@@ -50,7 +50,6 @@ var _ volume.VolumePlugin = &portworxVolumePlugin{}
 var _ volume.PersistentVolumePlugin = &portworxVolumePlugin{}
 var _ volume.DeletableVolumePlugin = &portworxVolumePlugin{}
 var _ volume.ProvisionableVolumePlugin = &portworxVolumePlugin{}
-var _ volume.ExpandableVolumePlugin = &portworxVolumePlugin{}
 
 const (
 	portworxVolumePluginName = "kubernetes.io/portworx-volume"
@@ -120,7 +119,7 @@ func (plugin *portworxVolumePlugin) newMounterInternal(spec *volume.Spec, podUID
 		},
 		fsType:      fsType,
 		readOnly:    readOnly,
-		diskMounter: util.NewSafeFormatAndMountFromHost(plugin.GetPluginName(), plugin.host)}, nil
+		diskMounter: volumehelper.NewSafeFormatAndMountFromHost(plugin.GetPluginName(), plugin.host)}, nil
 }
 
 func (plugin *portworxVolumePlugin) NewUnmounter(volName string, podUID types.UID) (volume.Unmounter, error) {
@@ -172,24 +171,6 @@ func (plugin *portworxVolumePlugin) newProvisionerInternal(options volume.Volume
 	}, nil
 }
 
-func (plugin *portworxVolumePlugin) RequiresFSResize() bool {
-	return false
-}
-
-func (plugin *portworxVolumePlugin) ExpandVolumeDevice(
-	spec *volume.Spec,
-	newSize resource.Quantity,
-	oldSize resource.Quantity) (resource.Quantity, error) {
-	glog.V(4).Infof("Expanding: %s from %v to %v", spec.Name(), oldSize, newSize)
-	err := plugin.util.ResizeVolume(spec, newSize, plugin.host)
-	if err != nil {
-		return oldSize, err
-	}
-
-	glog.V(4).Infof("Successfully resized %s to %v", spec.Name(), newSize)
-	return newSize, nil
-}
-
 func (plugin *portworxVolumePlugin) ConstructVolumeSpec(volumeName, mountPath string) (*volume.Spec, error) {
 	portworxVolume := &v1.Volume{
 		Name: volumeName,
@@ -225,7 +206,7 @@ func getVolumeSource(
 // Abstract interface to PD operations.
 type portworxManager interface {
 	// Creates a volume
-	CreateVolume(provisioner *portworxVolumeProvisioner) (volumeID string, volumeSizeGB int64, labels map[string]string, err error)
+	CreateVolume(provisioner *portworxVolumeProvisioner) (volumeID string, volumeSizeGB int, labels map[string]string, err error)
 	// Deletes a volume
 	DeleteVolume(deleter *portworxVolumeDeleter) error
 	// Attach a volume
@@ -236,8 +217,6 @@ type portworxManager interface {
 	MountVolume(mounter *portworxVolumeMounter, mountDir string) error
 	// Unmount a volume
 	UnmountVolume(unmounter *portworxVolumeUnmounter, mountDir string) error
-	// Resize a volume
-	ResizeVolume(spec *volume.Spec, newSize resource.Quantity, host volume.VolumeHost) error
 }
 
 // portworxVolume volumes are portworx block devices
@@ -378,16 +357,12 @@ type portworxVolumeProvisioner struct {
 
 var _ volume.Provisioner = &portworxVolumeProvisioner{}
 
-func (c *portworxVolumeProvisioner) Provision(selectedNode *v1.Node, allowedTopologies []v1.TopologySelectorTerm) (*v1.PersistentVolume, error) {
-	if !util.AccessModesContainedInAll(c.plugin.GetAccessModes(), c.options.PVC.Spec.AccessModes) {
+func (c *portworxVolumeProvisioner) Provision() (*v1.PersistentVolume, error) {
+	if !volume.AccessModesContainedInAll(c.plugin.GetAccessModes(), c.options.PVC.Spec.AccessModes) {
 		return nil, fmt.Errorf("invalid AccessModes %v: only AccessModes %v are supported", c.options.PVC.Spec.AccessModes, c.plugin.GetAccessModes())
 	}
 
-	if util.CheckPersistentVolumeClaimModeBlock(c.options.PVC) {
-		return nil, fmt.Errorf("%s does not support block volume provisioning", c.plugin.GetPluginName())
-	}
-
-	volumeID, sizeGiB, labels, err := c.manager.CreateVolume(c)
+	volumeID, sizeGB, labels, err := c.manager.CreateVolume(c)
 	if err != nil {
 		return nil, err
 	}
@@ -397,14 +372,14 @@ func (c *portworxVolumeProvisioner) Provision(selectedNode *v1.Node, allowedTopo
 			Name:   c.options.PVName,
 			Labels: map[string]string{},
 			Annotations: map[string]string{
-				util.VolumeDynamicallyCreatedByKey: "portworx-volume-dynamic-provisioner",
+				volumehelper.VolumeDynamicallyCreatedByKey: "portworx-volume-dynamic-provisioner",
 			},
 		},
 		Spec: v1.PersistentVolumeSpec{
 			PersistentVolumeReclaimPolicy: c.options.PersistentVolumeReclaimPolicy,
 			AccessModes:                   c.options.PVC.Spec.AccessModes,
 			Capacity: v1.ResourceList{
-				v1.ResourceName(v1.ResourceStorage): resource.MustParse(fmt.Sprintf("%dGi", sizeGiB)),
+				v1.ResourceName(v1.ResourceStorage): resource.MustParse(fmt.Sprintf("%dGi", sizeGB)),
 			},
 			PersistentVolumeSource: v1.PersistentVolumeSource{
 				PortworxVolume: &v1.PortworxVolumeSource{

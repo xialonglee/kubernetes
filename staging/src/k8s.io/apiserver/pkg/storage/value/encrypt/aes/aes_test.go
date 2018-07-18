@@ -149,41 +149,14 @@ func TestCBCKeyRotation(t *testing.T) {
 	}
 }
 
-func BenchmarkGCMRead(b *testing.B) {
-	tests := []struct {
-		keyLength   int
-		valueLength int
-		expectStale bool
-	}{
-		{keyLength: 16, valueLength: 1024, expectStale: false},
-		{keyLength: 32, valueLength: 1024, expectStale: false},
-		{keyLength: 32, valueLength: 16384, expectStale: false},
-		{keyLength: 32, valueLength: 16384, expectStale: true},
-	}
-	for _, t := range tests {
-		name := fmt.Sprintf("%vKeyLength/%vValueLength/%vExpectStale", t.keyLength, t.valueLength, t.expectStale)
-		b.Run(name, func(b *testing.B) {
-			benchmarkGCMRead(b, t.keyLength, t.valueLength, t.expectStale)
-		})
-	}
-}
+func BenchmarkGCMRead_16_1024(b *testing.B)        { benchmarkGCMRead(b, 16, 1024, false) }
+func BenchmarkGCMRead_32_1024(b *testing.B)        { benchmarkGCMRead(b, 32, 1024, false) }
+func BenchmarkGCMRead_32_16384(b *testing.B)       { benchmarkGCMRead(b, 32, 16384, false) }
+func BenchmarkGCMRead_32_16384_Stale(b *testing.B) { benchmarkGCMRead(b, 32, 16384, true) }
 
-func BenchmarkGCMWrite(b *testing.B) {
-	tests := []struct {
-		keyLength   int
-		valueLength int
-	}{
-		{keyLength: 16, valueLength: 1024},
-		{keyLength: 32, valueLength: 1024},
-		{keyLength: 32, valueLength: 16384},
-	}
-	for _, t := range tests {
-		name := fmt.Sprintf("%vKeyLength/%vValueLength", t.keyLength, t.valueLength)
-		b.Run(name, func(b *testing.B) {
-			benchmarkGCMWrite(b, t.keyLength, t.valueLength)
-		})
-	}
-}
+func BenchmarkGCMWrite_16_1024(b *testing.B)  { benchmarkGCMWrite(b, 16, 1024) }
+func BenchmarkGCMWrite_32_1024(b *testing.B)  { benchmarkGCMWrite(b, 32, 1024) }
+func BenchmarkGCMWrite_32_16384(b *testing.B) { benchmarkGCMWrite(b, 32, 16384) }
 
 func benchmarkGCMRead(b *testing.B, keyLength int, valueLength int, expectStale bool) {
 	block1, err := aes.NewCipher(bytes.Repeat([]byte("a"), keyLength))
@@ -254,39 +227,12 @@ func benchmarkGCMWrite(b *testing.B, keyLength int, valueLength int) {
 	b.StopTimer()
 }
 
-func BenchmarkCBCRead(b *testing.B) {
-	tests := []struct {
-		keyLength   int
-		valueLength int
-		expectStale bool
-	}{
-		{keyLength: 32, valueLength: 1024, expectStale: false},
-		{keyLength: 32, valueLength: 16384, expectStale: false},
-		{keyLength: 32, valueLength: 16384, expectStale: true},
-	}
-	for _, t := range tests {
-		name := fmt.Sprintf("%vKeyLength/%vValueLength/%vExpectStale", t.keyLength, t.valueLength, t.expectStale)
-		b.Run(name, func(b *testing.B) {
-			benchmarkCBCRead(b, t.keyLength, t.valueLength, t.expectStale)
-		})
-	}
-}
+func BenchmarkCBCRead_32_1024(b *testing.B)        { benchmarkCBCRead(b, 32, 1024, false) }
+func BenchmarkCBCRead_32_16384(b *testing.B)       { benchmarkCBCRead(b, 32, 16384, false) }
+func BenchmarkCBCRead_32_16384_Stale(b *testing.B) { benchmarkCBCRead(b, 32, 16384, true) }
 
-func BenchmarkCBCWrite(b *testing.B) {
-	tests := []struct {
-		keyLength   int
-		valueLength int
-	}{
-		{keyLength: 32, valueLength: 1024},
-		{keyLength: 32, valueLength: 16384},
-	}
-	for _, t := range tests {
-		name := fmt.Sprintf("%vKeyLength/%vValueLength", t.keyLength, t.valueLength)
-		b.Run(name, func(b *testing.B) {
-			benchmarkCBCWrite(b, t.keyLength, t.valueLength)
-		})
-	}
-}
+func BenchmarkCBCWrite_32_1024(b *testing.B)  { benchmarkCBCWrite(b, 32, 1024) }
+func BenchmarkCBCWrite_32_16384(b *testing.B) { benchmarkCBCWrite(b, 32, 16384) }
 
 func benchmarkCBCRead(b *testing.B, keyLength int, valueLength int, expectStale bool) {
 	block1, err := aes.NewCipher(bytes.Repeat([]byte("a"), keyLength))

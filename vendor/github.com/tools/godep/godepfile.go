@@ -25,6 +25,10 @@ type Godeps struct {
 	isOldFile    bool
 }
 
+func createGodepsFile() (*os.File, error) {
+	return os.Create(godepsFile)
+}
+
 func loadGodepsFile(path string) (Godeps, error) {
 	var g Godeps
 	f, err := os.Open(path)
@@ -197,7 +201,9 @@ func (g *Godeps) addOrUpdateDeps(deps []Dependency) {
 			missing = append(missing, d)
 		}
 	}
-	g.Deps = append(g.Deps, missing...)
+	for _, d := range missing {
+		g.Deps = append(g.Deps, d)
+	}
 }
 
 func (g *Godeps) removeDeps(deps []Dependency) {

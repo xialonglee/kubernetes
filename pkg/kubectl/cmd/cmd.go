@@ -17,27 +17,22 @@ limitations under the License.
 package cmd
 
 import (
-	"flag"
 	"fmt"
 	"io"
-	"os"
 
-	"k8s.io/apimachinery/pkg/api/meta"
-	utilflag "k8s.io/apiserver/pkg/util/flag"
+	"k8s.io/apiserver/pkg/util/flag"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/kubernetes/pkg/kubectl/cmd/auth"
 	cmdconfig "k8s.io/kubernetes/pkg/kubectl/cmd/config"
-	"k8s.io/kubernetes/pkg/kubectl/cmd/create"
-	"k8s.io/kubernetes/pkg/kubectl/cmd/get"
+	"k8s.io/kubernetes/pkg/kubectl/cmd/resource"
 	"k8s.io/kubernetes/pkg/kubectl/cmd/rollout"
 	"k8s.io/kubernetes/pkg/kubectl/cmd/set"
 	"k8s.io/kubernetes/pkg/kubectl/cmd/templates"
 	cmdutil "k8s.io/kubernetes/pkg/kubectl/cmd/util"
-	"k8s.io/kubernetes/pkg/kubectl/cmd/wait"
 	"k8s.io/kubernetes/pkg/kubectl/util/i18n"
 
+	"github.com/golang/glog"
 	"github.com/spf13/cobra"
-	"k8s.io/kubernetes/pkg/kubectl/genericclioptions"
 )
 
 const (
@@ -62,6 +57,9 @@ __kubectl_override_flags()
                     ;;
             esac
         done
+        if [ "${w}" == "--all-namespaces" ]; then
+            namespace="--all-namespaces"
+        fi
     done
     for var in "${__kubectl_override_flag_list[@]##*-}"; do
         if eval "test -n \"\$${var}\""; then
@@ -95,27 +93,20 @@ __kubectl_parse_config()
     fi
 }
 
-# $1 is the name of resource (required)
-# $2 is template string for kubectl get (optional)
 __kubectl_parse_get()
 {
     local template
-    template="${2:-"{{ range .items  }}{{ .metadata.name }} {{ end }}"}"
+    template="{{ range .items  }}{{ .metadata.name }} {{ end }}"
     local kubectl_out
     if kubectl_out=$(kubectl get $(__kubectl_override_flags) -o template --template="${template}" "$1" 2>/dev/null); then
-        COMPREPLY+=( $( compgen -W "${kubectl_out[*]}" -- "$cur" ) )
+        COMPREPLY=( $( compgen -W "${kubectl_out[*]}" -- "$cur" ) )
     fi
 }
 
 __kubectl_get_resource()
 {
     if [[ ${#nouns[@]} -eq 0 ]]; then
-      local kubectl_out
-      if kubectl_out=$(kubectl api-resources $(__kubectl_override_flags) -o name --cached --request-timeout=5s --verbs=get 2>/dev/null); then
-          COMPREPLY=( $( compgen -W "${kubectl_out[*]}" -- "$cur" ) )
-          return 0
-      fi
-      return 1
+        return 1
     fi
     __kubectl_parse_get "${nouns[${#nouns[@]} -1]}"
 }
@@ -149,8 +140,8 @@ __kubectl_get_resource_clusterrole()
 __kubectl_get_containers()
 {
     local template
-    template="{{ range .spec.initContainers }}{{ .name }} {{end}}{{ range .spec.containers  }}{{ .name }} {{ end }}"
-    __kubectl_debug "${FUNCNAME} nouns are ${nouns[*]}"
+    template="{{ range .spec.containers  }}{{ .name }} {{ end }}"
+    __debug "${FUNCNAME} nouns are ${nouns[*]}"
 
     local len="${#nouns[@]}"
     if [[ ${len} -ne 1 ]]; then
@@ -174,41 +165,10 @@ __kubectl_require_pod_and_container()
     return 0
 }
 
-__kubectl_cp()
-{
-    if [[ $(type -t compopt) = "builtin" ]]; then
-        compopt -o nospace
-    fi
-
-    case "$cur" in
-        /*|[.~]*) # looks like a path
-            return
-            ;;
-        *:*) # TODO: complete remote files in the pod
-            return
-            ;;
-        */*) # complete <namespace>/<pod>
-            local template namespace kubectl_out
-            template="{{ range .items }}{{ .metadata.namespace }}/{{ .metadata.name }}: {{ end }}"
-            namespace="${cur%%/*}"
-            if kubectl_out=( $(kubectl get $(__kubectl_override_flags) --namespace "${namespace}" -o template --template="${template}" pods 2>/dev/null) ); then
-                COMPREPLY=( $(compgen -W "${kubectl_out[*]}" -- "${cur}") )
-            fi
-            return
-            ;;
-        *) # complete namespaces, pods, and filedirs
-            __kubectl_parse_get "namespace" "{{ range .items  }}{{ .metadata.name }}/ {{ end }}"
-            __kubectl_parse_get "pod" "{{ range .items  }}{{ .metadata.name }}: {{ end }}"
-            _filedir
-            ;;
-    esac
-}
-
 __custom_func() {
     case ${last_command} in
         kubectl_get | kubectl_describe | kubectl_delete | kubectl_label | kubectl_edit | kubectl_patch |\
-        kubectl_annotate | kubectl_expose | kubectl_scale | kubectl_autoscale | kubectl_taint | kubectl_rollout_* |\
-        kubectl_apply_edit-last-applied | kubectl_apply_view-last-applied)
+        kubectl_annotate | kubectl_expose | kubectl_scale | kubectl_autoscale | kubectl_taint | kubectl_rollout_*)
             __kubectl_get_resource
             return
             ;;
@@ -236,10 +196,6 @@ __custom_func() {
             __kubectl_config_get_clusters
             return
             ;;
-        kubectl_cp)
-            __kubectl_cp
-            return
-            ;;
         *)
             ;;
     esac
@@ -256,12 +212,8 @@ var (
 	}
 )
 
-func NewDefaultKubectlCommand() *cobra.Command {
-	return NewKubectlCommand(os.Stdin, os.Stdout, os.Stderr)
-}
-
 // NewKubectlCommand creates the `kubectl` command and its nested children.
-func NewKubectlCommand(in io.Reader, out, err io.Writer) *cobra.Command {
+func NewKubectlCommand(f cmdutil.Factory, in io.Reader, out, err io.Writer) *cobra.Command {
 	// Parent command to which all subcommands are added.
 	cmds := &cobra.Command{
 		Use:   "kubectl",
@@ -269,27 +221,13 @@ func NewKubectlCommand(in io.Reader, out, err io.Writer) *cobra.Command {
 		Long: templates.LongDesc(`
       kubectl controls the Kubernetes cluster manager.
 
-      Find more information at:
-            https://kubernetes.io/docs/reference/kubectl/overview/`),
+      Find more information at https://github.com/kubernetes/kubernetes.`),
 		Run: runHelp,
 		BashCompletionFunction: bashCompletionFunc,
 	}
 
-	flags := cmds.PersistentFlags()
-	flags.SetNormalizeFunc(utilflag.WarnWordSepNormalizeFunc) // Warn for "_" flags
-
-	// Normalize all flags that are coming from other packages or pre-configurations
-	// a.k.a. change all "_" to "-". e.g. glog package
-	flags.SetNormalizeFunc(utilflag.WordSepNormalizeFunc)
-
-	kubeConfigFlags := genericclioptions.NewConfigFlags()
-	kubeConfigFlags.AddFlags(flags)
-	matchVersionKubeConfigFlags := cmdutil.NewMatchVersionFlags(kubeConfigFlags)
-	matchVersionKubeConfigFlags.AddFlags(cmds.PersistentFlags())
-
-	cmds.PersistentFlags().AddGoFlagSet(flag.CommandLine)
-
-	f := cmdutil.NewFactory(matchVersionKubeConfigFlags)
+	f.BindFlags(cmds.PersistentFlags())
+	f.BindExternalFlags(cmds.PersistentFlags())
 
 	// Sending in 'nil' for the getLanguageFn() results in using
 	// the LANG environment variable.
@@ -299,80 +237,77 @@ func NewKubectlCommand(in io.Reader, out, err io.Writer) *cobra.Command {
 	i18n.LoadTranslations("kubectl", nil)
 
 	// From this point and forward we get warnings on flags that contain "_" separators
-	cmds.SetGlobalNormalizationFunc(utilflag.WarnWordSepNormalizeFunc)
-
-	ioStreams := genericclioptions.IOStreams{In: in, Out: out, ErrOut: err}
+	cmds.SetGlobalNormalizationFunc(flag.WarnWordSepNormalizeFunc)
 
 	groups := templates.CommandGroups{
 		{
 			Message: "Basic Commands (Beginner):",
 			Commands: []*cobra.Command{
-				create.NewCmdCreate(f, ioStreams),
-				NewCmdExposeService(f, ioStreams),
-				NewCmdRun(f, ioStreams),
-				set.NewCmdSet(f, ioStreams),
-				deprecatedAlias("run-container", NewCmdRun(f, ioStreams)),
+				NewCmdCreate(f, out, err),
+				NewCmdExposeService(f, out),
+				NewCmdRun(f, in, out, err),
+				set.NewCmdSet(f, in, out, err),
+				deprecatedAlias("run-container", NewCmdRun(f, in, out, err)),
 			},
 		},
 		{
 			Message: "Basic Commands (Intermediate):",
 			Commands: []*cobra.Command{
-				NewCmdExplain("kubectl", f, ioStreams),
-				get.NewCmdGet("kubectl", f, ioStreams),
-				NewCmdEdit(f, ioStreams),
-				NewCmdDelete(f, ioStreams),
+				resource.NewCmdGet(f, out, err),
+				NewCmdExplain(f, out, err),
+				NewCmdEdit(f, out, err),
+				NewCmdDelete(f, out, err),
 			},
 		},
 		{
 			Message: "Deploy Commands:",
 			Commands: []*cobra.Command{
-				rollout.NewCmdRollout(f, ioStreams),
-				NewCmdRollingUpdate(f, ioStreams),
-				NewCmdScale(f, ioStreams),
-				NewCmdAutoscale(f, ioStreams),
+				rollout.NewCmdRollout(f, out, err),
+				NewCmdRollingUpdate(f, out),
+				NewCmdScale(f, out),
+				NewCmdAutoscale(f, out),
 			},
 		},
 		{
 			Message: "Cluster Management Commands:",
 			Commands: []*cobra.Command{
-				NewCmdCertificate(f, ioStreams),
-				NewCmdClusterInfo(f, ioStreams),
-				NewCmdTop(f, ioStreams),
-				NewCmdCordon(f, ioStreams),
-				NewCmdUncordon(f, ioStreams),
-				NewCmdDrain(f, ioStreams),
-				NewCmdTaint(f, ioStreams),
+				NewCmdCertificate(f, out),
+				NewCmdClusterInfo(f, out),
+				NewCmdTop(f, out, err),
+				NewCmdCordon(f, out),
+				NewCmdUncordon(f, out),
+				NewCmdDrain(f, out, err),
+				NewCmdTaint(f, out),
 			},
 		},
 		{
 			Message: "Troubleshooting and Debugging Commands:",
 			Commands: []*cobra.Command{
-				NewCmdDescribe("kubectl", f, ioStreams),
-				NewCmdLogs(f, ioStreams),
-				NewCmdAttach(f, ioStreams),
-				NewCmdExec(f, ioStreams),
-				NewCmdPortForward(f, ioStreams),
-				NewCmdProxy(f, ioStreams),
-				NewCmdCp(f, ioStreams),
-				auth.NewCmdAuth(f, ioStreams),
+				NewCmdDescribe(f, out, err),
+				NewCmdLogs(f, out),
+				NewCmdAttach(f, in, out, err),
+				NewCmdExec(f, in, out, err),
+				NewCmdPortForward(f, out, err),
+				NewCmdProxy(f, out),
+				NewCmdCp(f, out, err),
+				auth.NewCmdAuth(f, out, err),
 			},
 		},
 		{
 			Message: "Advanced Commands:",
 			Commands: []*cobra.Command{
-				NewCmdApply("kubectl", f, ioStreams),
-				NewCmdPatch(f, ioStreams),
-				NewCmdReplace(f, ioStreams),
-				wait.NewCmdWait(f, ioStreams),
-				NewCmdConvert(f, ioStreams),
+				NewCmdApply("kubectl", f, out, err),
+				NewCmdPatch(f, out),
+				NewCmdReplace(f, out),
+				NewCmdConvert(f, out),
 			},
 		},
 		{
 			Message: "Settings Commands:",
 			Commands: []*cobra.Command{
-				NewCmdLabel(f, ioStreams),
-				NewCmdAnnotate("kubectl", f, ioStreams),
-				NewCmdCompletion(ioStreams.Out, ""),
+				NewCmdLabel(f, out),
+				NewCmdAnnotate(f, out),
+				NewCmdCompletion(out, ""),
 			},
 		},
 	}
@@ -381,7 +316,7 @@ func NewKubectlCommand(in io.Reader, out, err io.Writer) *cobra.Command {
 	filters := []string{"options"}
 
 	// Hide the "alpha" subcommand if there are no alpha commands in this build.
-	alpha := NewCmdAlpha(f, ioStreams)
+	alpha := NewCmdAlpha(f, in, out, err)
 	if !alpha.HasSubCommands() {
 		filters = append(filters, alpha.Name())
 	}
@@ -401,12 +336,11 @@ func NewKubectlCommand(in io.Reader, out, err io.Writer) *cobra.Command {
 	}
 
 	cmds.AddCommand(alpha)
-	cmds.AddCommand(cmdconfig.NewCmdConfig(f, clientcmd.NewDefaultPathOptions(), ioStreams))
-	cmds.AddCommand(NewCmdPlugin(f, ioStreams))
-	cmds.AddCommand(NewCmdVersion(f, ioStreams))
-	cmds.AddCommand(NewCmdApiVersions(f, ioStreams))
-	cmds.AddCommand(NewCmdApiResources(f, ioStreams))
-	cmds.AddCommand(NewCmdOptions(ioStreams.Out))
+	cmds.AddCommand(cmdconfig.NewCmdConfig(clientcmd.NewDefaultPathOptions(), out, err))
+	cmds.AddCommand(NewCmdPlugin(f, in, out, err))
+	cmds.AddCommand(NewCmdVersion(f, out))
+	cmds.AddCommand(NewCmdApiVersions(f, out))
+	cmds.AddCommand(NewCmdOptions(out))
 
 	return cmds
 }
@@ -415,8 +349,8 @@ func runHelp(cmd *cobra.Command, args []string) {
 	cmd.Help()
 }
 
-func printDeprecationWarning(errOut io.Writer, command, alias string) {
-	fmt.Fprintf(errOut, "%s is DEPRECATED and will be removed in a future version. Use %s instead.\n", alias, command)
+func printDeprecationWarning(command, alias string) {
+	glog.Warningf("%s is DEPRECATED and will be removed in a future version. Use %s instead.", alias, command)
 }
 
 // deprecatedAlias is intended to be used to create a "wrapper" command around
@@ -434,4 +368,12 @@ func deprecatedAlias(deprecatedVersion string, cmd *cobra.Command) *cobra.Comman
 	return cmd
 }
 
-var metadataAccessor = meta.NewAccessor()
+// deprecated is similar to deprecatedAlias, but it is used for deprecations
+// that are not simple aliases; this command is actually a different
+// (deprecated) codepath.
+func deprecated(baseName, to string, parent, cmd *cobra.Command) string {
+	cmd.Long = fmt.Sprintf("Deprecated: all functionality can be found in \"%s %s\"", baseName, to)
+	cmd.Short = fmt.Sprintf("Deprecated: use %s", to)
+	parent.AddCommand(cmd)
+	return cmd.Name()
+}

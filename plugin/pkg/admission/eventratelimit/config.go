@@ -20,7 +20,10 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"os"
 
+	"k8s.io/apimachinery/pkg/apimachinery/announced"
+	"k8s.io/apimachinery/pkg/apimachinery/registered"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	eventratelimitapi "k8s.io/kubernetes/plugin/pkg/admission/eventratelimit/apis/eventratelimit"
@@ -29,12 +32,14 @@ import (
 )
 
 var (
-	scheme = runtime.NewScheme()
-	codecs = serializer.NewCodecFactory(scheme)
+	groupFactoryRegistry = make(announced.APIGroupFactoryRegistry)
+	registry             = registered.NewOrDie(os.Getenv("KUBE_API_VERSIONS"))
+	scheme               = runtime.NewScheme()
+	codecs               = serializer.NewCodecFactory(scheme)
 )
 
 func init() {
-	install.Install(scheme)
+	install.Install(groupFactoryRegistry, registry, scheme)
 }
 
 // LoadConfiguration loads the provided configuration.

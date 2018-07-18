@@ -22,18 +22,12 @@ import (
 	"net"
 	"path"
 
-	"time"
-
 	. "github.com/onsi/ginkgo"
 	"k8s.io/api/core/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/apimachinery/pkg/version"
 	clientset "k8s.io/client-go/kubernetes"
-	versionutil "k8s.io/kubernetes/pkg/util/version"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/e2e/generated"
-	"k8s.io/kubernetes/test/e2e/storage/utils"
 )
 
 const (
@@ -44,9 +38,7 @@ const (
 	// On gci, root is read-only and controller-manager containerized. Assume
 	// controller-manager has started with --flex-volume-plugin-dir equal to this
 	// (see cluster/gce/config-test.sh)
-	gciVolumePluginDir        = "/home/kubernetes/flexvolume"
-	gciVolumePluginDirLegacy  = "/etc/srv/kubernetes/kubelet-plugins/volume/exec"
-	gciVolumePluginDirVersion = "1.10.0"
+	gciVolumePluginDir = "/etc/srv/kubernetes/kubelet-plugins/volume/exec"
 )
 
 // testFlexVolume tests that a client pod using a given flexvolume driver
@@ -72,125 +64,79 @@ func testFlexVolume(driver string, cs clientset.Interface, config framework.Volu
 // installFlex installs the driver found at filePath on the node, and restarts
 // kubelet if 'restart' is true. If node is nil, installs on the master, and restarts
 // controller-manager if 'restart' is true.
-func installFlex(c clientset.Interface, node *v1.Node, vendor, driver, filePath string) {
-	flexDir := getFlexDir(c, node, vendor, driver)
+func installFlex(node *v1.Node, vendor, driver, filePath string, restart bool) {
+	flexDir := getFlexDir(node == nil, vendor, driver)
 	flexFile := path.Join(flexDir, driver)
 
 	host := ""
-	var err error
 	if node != nil {
-		host, err = framework.GetNodeExternalIP(node)
-		if err != nil {
-			host, err = framework.GetNodeInternalIP(node)
-		}
+		host = framework.GetNodeExternalIP(node)
 	} else {
-		masterHostWithPort := framework.GetMasterHost()
-		hostName := getHostFromHostPort(masterHostWithPort)
-		host = net.JoinHostPort(hostName, sshPort)
+		host = net.JoinHostPort(framework.GetMasterHost(), sshPort)
 	}
 
-	framework.ExpectNoError(err)
-
 	cmd := fmt.Sprintf("sudo mkdir -p %s", flexDir)
-	sshAndLog(cmd, host, true /*failOnError*/)
+	sshAndLog(cmd, host)
 
 	data := generated.ReadOrDie(filePath)
 	cmd = fmt.Sprintf("sudo tee <<'EOF' %s\n%s\nEOF", flexFile, string(data))
-	sshAndLog(cmd, host, true /*failOnError*/)
+	sshAndLog(cmd, host)
 
 	cmd = fmt.Sprintf("sudo chmod +x %s", flexFile)
-	sshAndLog(cmd, host, true /*failOnError*/)
-}
+	sshAndLog(cmd, host)
 
-func uninstallFlex(c clientset.Interface, node *v1.Node, vendor, driver string) {
-	flexDir := getFlexDir(c, node, vendor, driver)
-
-	host := ""
-	var err error
-	if node != nil {
-		host, err = framework.GetNodeExternalIP(node)
-		if err != nil {
-			host, err = framework.GetNodeInternalIP(node)
-		}
-	} else {
-		masterHostWithPort := framework.GetMasterHost()
-		hostName := getHostFromHostPort(masterHostWithPort)
-		host = net.JoinHostPort(hostName, sshPort)
+	if !restart {
+		return
 	}
 
-	if host == "" {
-		framework.Failf("Error getting node ip : %v", err)
+	if node != nil {
+		err := framework.RestartKubelet(host)
+		framework.ExpectNoError(err)
+		err = framework.WaitForKubeletUp(host)
+		framework.ExpectNoError(err)
+	} else {
+		err := framework.RestartControllerManager()
+		framework.ExpectNoError(err)
+		err = framework.WaitForControllerManagerUp()
+		framework.ExpectNoError(err)
+	}
+}
+
+func uninstallFlex(node *v1.Node, vendor, driver string) {
+	flexDir := getFlexDir(node == nil, vendor, driver)
+
+	host := ""
+	if node != nil {
+		host = framework.GetNodeExternalIP(node)
+	} else {
+		host = net.JoinHostPort(framework.GetMasterHost(), sshPort)
 	}
 
 	cmd := fmt.Sprintf("sudo rm -r %s", flexDir)
-	sshAndLog(cmd, host, false /*failOnError*/)
+	sshAndLog(cmd, host)
 }
 
-func getFlexDir(c clientset.Interface, node *v1.Node, vendor, driver string) string {
+func getFlexDir(master bool, vendor, driver string) string {
 	volumePluginDir := defaultVolumePluginDir
 	if framework.ProviderIs("gce") {
-		if node == nil && framework.MasterOSDistroIs("gci", "ubuntu") {
-			v, err := getMasterVersion(c)
-			if err != nil {
-				framework.Failf("Error getting master version: %v", err)
-			}
-
-			if v.AtLeast(versionutil.MustParseGeneric(gciVolumePluginDirVersion)) {
-				volumePluginDir = gciVolumePluginDir
-			} else {
-				volumePluginDir = gciVolumePluginDirLegacy
-			}
-		} else if node != nil && framework.NodeOSDistroIs("gci", "ubuntu") {
-			if getNodeVersion(node).AtLeast(versionutil.MustParseGeneric(gciVolumePluginDirVersion)) {
-				volumePluginDir = gciVolumePluginDir
-			} else {
-				volumePluginDir = gciVolumePluginDirLegacy
-			}
+		if (master && framework.MasterOSDistroIs("gci")) || (!master && framework.NodeOSDistroIs("gci")) {
+			volumePluginDir = gciVolumePluginDir
 		}
 	}
 	flexDir := path.Join(volumePluginDir, fmt.Sprintf("/%s~%s/", vendor, driver))
 	return flexDir
 }
 
-func sshAndLog(cmd, host string, failOnError bool) {
+func sshAndLog(cmd, host string) {
 	result, err := framework.SSH(cmd, host, framework.TestContext.Provider)
 	framework.LogSSHResult(result)
 	framework.ExpectNoError(err)
-	if result.Code != 0 && failOnError {
+	if result.Code != 0 {
 		framework.Failf("%s returned non-zero, stderr: %s", cmd, result.Stderr)
 	}
 }
 
-func getMasterVersion(c clientset.Interface) (*versionutil.Version, error) {
-	var err error
-	var v *version.Info
-	waitErr := wait.PollImmediate(5*time.Second, 2*time.Minute, func() (bool, error) {
-		v, err = c.Discovery().ServerVersion()
-		return err == nil, nil
-	})
-	if waitErr != nil {
-		return nil, fmt.Errorf("Could not get the master version: %v", waitErr)
-	}
-
-	return versionutil.MustParseSemantic(v.GitVersion), nil
-}
-
-func getNodeVersion(node *v1.Node) *versionutil.Version {
-	return versionutil.MustParseSemantic(node.Status.NodeInfo.KubeletVersion)
-}
-
-func getHostFromHostPort(hostPort string) string {
-	// try to split host and port
-	var host string
-	var err error
-	if host, _, err = net.SplitHostPort(hostPort); err != nil {
-		// if SplitHostPort returns an error, the entire hostport is considered as host
-		host = hostPort
-	}
-	return host
-}
-
-var _ = utils.SIGDescribe("Flexvolumes", func() {
+var _ = SIGDescribe("Flexvolumes [Disruptive] [Feature:FlexVolume]", func() {
 	f := framework.NewDefaultFramework("flexvolume")
 
 	// note that namespace deletion is handled by delete-namespace flag
@@ -202,9 +148,9 @@ var _ = utils.SIGDescribe("Flexvolumes", func() {
 	var suffix string
 
 	BeforeEach(func() {
-		framework.SkipUnlessProviderIs("gce", "local")
-		framework.SkipUnlessMasterOSDistroIs("debian", "ubuntu", "gci")
-		framework.SkipUnlessNodeOSDistroIs("debian", "ubuntu", "gci")
+		framework.SkipUnlessProviderIs("gce")
+		framework.SkipUnlessMasterOSDistroIs("gci")
+		framework.SkipUnlessNodeOSDistroIs("debian", "gci")
 		framework.SkipUnlessSSHKeyPresent()
 
 		cs = f.ClientSet
@@ -224,7 +170,7 @@ var _ = utils.SIGDescribe("Flexvolumes", func() {
 		driverInstallAs := driver + "-" + suffix
 
 		By(fmt.Sprintf("installing flexvolume %s on node %s as %s", path.Join(driverDir, driver), node.Name, driverInstallAs))
-		installFlex(cs, &node, "k8s", driverInstallAs, path.Join(driverDir, driver))
+		installFlex(&node, "k8s", driverInstallAs, path.Join(driverDir, driver), true /* restart */)
 
 		testFlexVolume(driverInstallAs, cs, config, f)
 
@@ -234,7 +180,7 @@ var _ = utils.SIGDescribe("Flexvolumes", func() {
 		}
 
 		By(fmt.Sprintf("uninstalling flexvolume %s from node %s", driverInstallAs, node.Name))
-		uninstallFlex(cs, &node, "k8s", driverInstallAs)
+		uninstallFlex(&node, "k8s", driverInstallAs)
 	})
 
 	It("should be mountable when attachable", func() {
@@ -242,9 +188,9 @@ var _ = utils.SIGDescribe("Flexvolumes", func() {
 		driverInstallAs := driver + "-" + suffix
 
 		By(fmt.Sprintf("installing flexvolume %s on node %s as %s", path.Join(driverDir, driver), node.Name, driverInstallAs))
-		installFlex(cs, &node, "k8s", driverInstallAs, path.Join(driverDir, driver))
+		installFlex(&node, "k8s", driverInstallAs, path.Join(driverDir, driver), true /* restart */)
 		By(fmt.Sprintf("installing flexvolume %s on master as %s", path.Join(driverDir, driver), driverInstallAs))
-		installFlex(cs, nil, "k8s", driverInstallAs, path.Join(driverDir, driver))
+		installFlex(nil, "k8s", driverInstallAs, path.Join(driverDir, driver), true /* restart */)
 
 		testFlexVolume(driverInstallAs, cs, config, f)
 
@@ -254,8 +200,26 @@ var _ = utils.SIGDescribe("Flexvolumes", func() {
 		}
 
 		By(fmt.Sprintf("uninstalling flexvolume %s from node %s", driverInstallAs, node.Name))
-		uninstallFlex(cs, &node, "k8s", driverInstallAs)
+		uninstallFlex(&node, "k8s", driverInstallAs)
 		By(fmt.Sprintf("uninstalling flexvolume %s from master", driverInstallAs))
-		uninstallFlex(cs, nil, "k8s", driverInstallAs)
+		uninstallFlex(nil, "k8s", driverInstallAs)
+	})
+
+	It("should install plugin without kubelet restart", func() {
+		driver := "dummy"
+		driverInstallAs := driver + "-" + suffix
+
+		By(fmt.Sprintf("installing flexvolume %s on node %s as %s", path.Join(driverDir, driver), node.Name, driverInstallAs))
+		installFlex(&node, "k8s", driverInstallAs, path.Join(driverDir, driver), false /* restart */)
+
+		testFlexVolume(driverInstallAs, cs, config, f)
+
+		By("waiting for flex client pod to terminate")
+		if err := f.WaitForPodTerminated(config.Prefix+"-client", ""); !apierrs.IsNotFound(err) {
+			framework.ExpectNoError(err, "Failed to wait client pod terminated: %v", err)
+		}
+
+		By(fmt.Sprintf("uninstalling flexvolume %s from node %s", driverInstallAs, node.Name))
+		uninstallFlex(&node, "k8s", driverInstallAs)
 	})
 })

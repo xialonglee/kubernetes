@@ -29,13 +29,20 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/util/jsonpath"
-	"k8s.io/kubernetes/pkg/kubectl/genericclioptions/printers"
+)
+
+const (
+	columnwidth       = 10
+	tabwidth          = 4
+	padding           = 3
+	padding_character = ' '
+	flags             = 0
 )
 
 var jsonRegexp = regexp.MustCompile("^\\{\\.?([^{}]+)\\}$|^\\.?([^{}]+)$")
 
 // RelaxedJSONPathExpression attempts to be flexible with JSONPath expressions, it accepts:
-//   * metadata.name (no leading '.' or curly braces '{...}'
+//   * metadata.name (no leading '.' or curly brances '{...}'
 //   * {metadata.name} (no leading '.')
 //   * .metadata.name (no curly braces '{...}')
 //   * {.metadata.name} (complete expression)
@@ -151,19 +158,12 @@ type CustomColumnsPrinter struct {
 	lastType reflect.Type
 }
 
-func (s *CustomColumnsPrinter) PrintObj(obj runtime.Object, out io.Writer) error {
-	// we use reflect.Indirect here in order to obtain the actual value from a pointer.
-	// we need an actual value in order to retrieve the package path for an object.
-	// using reflect.Indirect indiscriminately is valid here, as all runtime.Objects are supposed to be pointers.
-	if printers.InternalObjectPreventer.IsForbidden(reflect.Indirect(reflect.ValueOf(obj)).Type().PkgPath()) {
-		return fmt.Errorf(printers.InternalObjectPrinterErr)
-	}
+func (s *CustomColumnsPrinter) AfterPrint(w io.Writer, res string) error {
+	return nil
+}
 
-	if w, found := out.(*tabwriter.Writer); !found {
-		w = GetNewTabWriter(out)
-		out = w
-		defer w.Flush()
-	}
+func (s *CustomColumnsPrinter) PrintObj(obj runtime.Object, out io.Writer) error {
+	w := tabwriter.NewWriter(out, columnwidth, tabwidth, padding, padding_character, flags)
 
 	t := reflect.TypeOf(obj)
 	if !s.NoHeaders && t != s.lastType {
@@ -171,7 +171,7 @@ func (s *CustomColumnsPrinter) PrintObj(obj runtime.Object, out io.Writer) error
 		for ix := range s.Columns {
 			headers[ix] = s.Columns[ix].Header
 		}
-		fmt.Fprintln(out, strings.Join(headers, "\t"))
+		fmt.Fprintln(w, strings.Join(headers, "\t"))
 		s.lastType = t
 	}
 	parsers := make([]*jsonpath.JSONPath, len(s.Columns))
@@ -188,16 +188,16 @@ func (s *CustomColumnsPrinter) PrintObj(obj runtime.Object, out io.Writer) error
 			return err
 		}
 		for ix := range objs {
-			if err := s.printOneObject(objs[ix], parsers, out); err != nil {
+			if err := s.printOneObject(objs[ix], parsers, w); err != nil {
 				return err
 			}
 		}
 	} else {
-		if err := s.printOneObject(obj, parsers, out); err != nil {
+		if err := s.printOneObject(obj, parsers, w); err != nil {
 			return err
 		}
 	}
-	return nil
+	return w.Flush()
 }
 
 func (s *CustomColumnsPrinter) printOneObject(obj runtime.Object, parsers []*jsonpath.JSONPath, out io.Writer) error {
@@ -239,4 +239,12 @@ func (s *CustomColumnsPrinter) printOneObject(obj runtime.Object, parsers []*jso
 	}
 	fmt.Fprintln(out, strings.Join(columns, "\t"))
 	return nil
+}
+
+func (s *CustomColumnsPrinter) HandledResources() []string {
+	return []string{}
+}
+
+func (s *CustomColumnsPrinter) IsGeneric() bool {
+	return true
 }

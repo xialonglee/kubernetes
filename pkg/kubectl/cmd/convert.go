@@ -18,6 +18,7 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -26,10 +27,9 @@ import (
 	api "k8s.io/kubernetes/pkg/apis/core"
 	"k8s.io/kubernetes/pkg/kubectl/cmd/templates"
 	cmdutil "k8s.io/kubernetes/pkg/kubectl/cmd/util"
-	"k8s.io/kubernetes/pkg/kubectl/genericclioptions"
-	"k8s.io/kubernetes/pkg/kubectl/genericclioptions/printers"
-	"k8s.io/kubernetes/pkg/kubectl/genericclioptions/resource"
+	"k8s.io/kubernetes/pkg/kubectl/resource"
 	"k8s.io/kubernetes/pkg/kubectl/util/i18n"
+	"k8s.io/kubernetes/pkg/printers"
 
 	"github.com/golang/glog"
 	"github.com/spf13/cobra"
@@ -61,75 +61,75 @@ var (
 
 // NewCmdConvert creates a command object for the generic "convert" action, which
 // translates the config file into a given version.
-func NewCmdConvert(f cmdutil.Factory, ioStreams genericclioptions.IOStreams) *cobra.Command {
-	options := NewConvertOptions(ioStreams)
+func NewCmdConvert(f cmdutil.Factory, out io.Writer) *cobra.Command {
+	options := &ConvertOptions{}
 
 	cmd := &cobra.Command{
-		Use: "convert -f FILENAME",
-		DisableFlagsInUseLine: true,
+		Use:     "convert -f FILENAME",
 		Short:   i18n.T("Convert config files between different API versions"),
 		Long:    convert_long,
 		Example: convert_example,
 		Run: func(cmd *cobra.Command, args []string) {
-			cmdutil.CheckErr(options.Complete(f, cmd))
-			cmdutil.CheckErr(options.RunConvert())
+			err := options.Complete(f, out, cmd)
+			cmdutil.CheckErr(err)
+			err = options.RunConvert()
+			cmdutil.CheckErr(err)
 		},
 	}
-
-	options.PrintFlags.AddFlags(cmd)
 
 	usage := "to need to get converted."
 	cmdutil.AddFilenameOptionFlags(cmd, &options.FilenameOptions, usage)
 	cmd.MarkFlagRequired("filename")
 	cmdutil.AddValidateFlags(cmd)
-	cmd.Flags().BoolVar(&options.local, "local", options.local, "If true, convert will NOT try to contact api-server but run locally.")
+	cmdutil.AddNonDeprecatedPrinterFlags(cmd)
+	cmd.Flags().BoolVar(&options.local, "local", true, "If true, convert will NOT try to contact api-server but run locally.")
 	cmd.Flags().String("output-version", "", i18n.T("Output the formatted object with the given group version (for ex: 'extensions/v1beta1').)"))
+	cmdutil.AddInclude3rdPartyFlags(cmd)
 	return cmd
 }
 
 // ConvertOptions have the data required to perform the convert operation
 type ConvertOptions struct {
-	PrintFlags *genericclioptions.PrintFlags
-	PrintObj   printers.ResourcePrinterFunc
-
 	resource.FilenameOptions
 
 	builder *resource.Builder
 	local   bool
 
-	genericclioptions.IOStreams
-	specifiedOutputVersion schema.GroupVersion
-}
+	encoder runtime.Encoder
+	out     io.Writer
+	printer printers.ResourcePrinter
 
-func NewConvertOptions(ioStreams genericclioptions.IOStreams) *ConvertOptions {
-	return &ConvertOptions{
-		PrintFlags: genericclioptions.NewPrintFlags("converted").WithTypeSetter(scheme.Scheme).WithDefaultOutput("yaml"),
-		local:      true,
-		IOStreams:  ioStreams,
-	}
+	outputVersion schema.GroupVersion
 }
 
 // outputVersion returns the preferred output version for generic content (JSON, YAML, or templates)
 // defaultVersion is never mutated.  Nil simply allows clean passing in common usage from client.Config
-func outputVersion(cmd *cobra.Command) (schema.GroupVersion, error) {
+func outputVersion(cmd *cobra.Command, defaultVersion *schema.GroupVersion) (schema.GroupVersion, error) {
 	outputVersionString := cmdutil.GetFlagString(cmd, "output-version")
 	if len(outputVersionString) == 0 {
-		return schema.GroupVersion{}, nil
+		if defaultVersion == nil {
+			return schema.GroupVersion{}, nil
+		}
+
+		return *defaultVersion, nil
 	}
 
 	return schema.ParseGroupVersion(outputVersionString)
 }
 
 // Complete collects information required to run Convert command from command line.
-func (o *ConvertOptions) Complete(f cmdutil.Factory, cmd *cobra.Command) (err error) {
-	o.specifiedOutputVersion, err = outputVersion(cmd)
+func (o *ConvertOptions) Complete(f cmdutil.Factory, out io.Writer, cmd *cobra.Command) (err error) {
+	o.outputVersion, err = outputVersion(cmd, &scheme.Registry.EnabledVersionsForGroup(api.GroupName)[0])
 	if err != nil {
 		return err
+	}
+	if !scheme.Registry.IsEnabledVersion(o.outputVersion) {
+		return cmdutil.UsageErrorf(cmd, "'%s' is not a registered version.", o.outputVersion)
 	}
 
 	// build the builder
 	o.builder = f.NewBuilder().
-		WithScheme(scheme.Scheme).
+		Internal().
 		LocalParam(o.local)
 	if !o.local {
 		schema, err := f.Validator(cmdutil.GetFlagBool(cmd, "validate"))
@@ -139,7 +139,7 @@ func (o *ConvertOptions) Complete(f cmdutil.Factory, cmd *cobra.Command) (err er
 		o.builder.Schema(schema)
 	}
 
-	cmdNamespace, _, err := f.ToRawKubeConfigLoader().Namespace()
+	cmdNamespace, _, err := f.DefaultNamespace()
 	if err != nil {
 		return err
 	}
@@ -149,12 +149,21 @@ func (o *ConvertOptions) Complete(f cmdutil.Factory, cmd *cobra.Command) (err er
 		Flatten()
 
 	// build the printer
-	printer, err := o.PrintFlags.ToPrinter()
-	if err != nil {
-		return err
+	o.out = out
+	outputFormat := cmdutil.GetFlagString(cmd, "output")
+	templateFile := cmdutil.GetFlagString(cmd, "template")
+	if len(outputFormat) == 0 {
+		if len(templateFile) == 0 {
+			outputFormat = "yaml"
+		} else {
+			outputFormat = "template"
+		}
+		// TODO: once printing is abstracted, this should be handled at flag declaration time
+		cmd.Flags().Set("output", outputFormat)
 	}
-	o.PrintObj = printer.PrintObj
-	return nil
+	o.encoder = f.JSONEncoder()
+	o.printer, err = f.PrinterForOptions(cmdutil.ExtractCmdPrintOptions(cmd, false))
+	return err
 }
 
 // RunConvert implements the generic Convert command
@@ -175,36 +184,31 @@ func (o *ConvertOptions) RunConvert() error {
 		return fmt.Errorf("no objects passed to convert")
 	}
 
-	objects, err := asVersionedObject(infos, !singleItemImplied, o.specifiedOutputVersion, cmdutil.InternalVersionJSONEncoder())
+	objects, err := asVersionedObject(infos, !singleItemImplied, o.outputVersion, o.encoder)
 	if err != nil {
 		return err
 	}
 
 	if meta.IsListType(objects) {
-		listContent, err := meta.ExtractList(objects)
+		_, items, err := cmdutil.FilterResourceList(objects, nil, nil)
 		if err != nil {
 			return err
 		}
-		obj, err := objectListToVersionedObject(listContent, o.specifiedOutputVersion)
+		filteredObj, err := objectListToVersionedObject(items, o.outputVersion)
 		if err != nil {
 			return err
 		}
-		return o.PrintObj(obj, o.Out)
+		return o.printer.PrintObj(filteredObj, o.out)
 	}
 
-	return o.PrintObj(objects, o.Out)
+	return o.printer.PrintObj(objects, o.out)
 }
 
 // objectListToVersionedObject receives a list of api objects and a group version
 // and squashes the list's items into a single versioned runtime.Object.
-func objectListToVersionedObject(objects []runtime.Object, specifiedOutputVersion schema.GroupVersion) (runtime.Object, error) {
+func objectListToVersionedObject(objects []runtime.Object, version schema.GroupVersion) (runtime.Object, error) {
 	objectList := &api.List{Items: objects}
-	targetVersions := []schema.GroupVersion{}
-	if !specifiedOutputVersion.Empty() {
-		targetVersions = append(targetVersions, specifiedOutputVersion)
-	}
-	targetVersions = append(targetVersions, schema.GroupVersion{Group: "", Version: "v1"})
-	converted, err := tryConvert(scheme.Scheme, objectList, targetVersions...)
+	converted, err := tryConvert(scheme.Scheme, objectList, version, scheme.Registry.GroupOrDie(api.GroupName).GroupVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -215,8 +219,8 @@ func objectListToVersionedObject(objects []runtime.Object, specifiedOutputVersio
 // the objects as children, or if only a single Object is present, as that object. The provided
 // version will be preferred as the conversion target, but the Object's mapping version will be
 // used if that version is not present.
-func asVersionedObject(infos []*resource.Info, forceList bool, specifiedOutputVersion schema.GroupVersion, encoder runtime.Encoder) (runtime.Object, error) {
-	objects, err := asVersionedObjects(infos, specifiedOutputVersion, encoder)
+func asVersionedObject(infos []*resource.Info, forceList bool, version schema.GroupVersion, encoder runtime.Encoder) (runtime.Object, error) {
+	objects, err := asVersionedObjects(infos, version, encoder)
 	if err != nil {
 		return nil, err
 	}
@@ -226,13 +230,7 @@ func asVersionedObject(infos []*resource.Info, forceList bool, specifiedOutputVe
 		object = objects[0]
 	} else {
 		object = &api.List{Items: objects}
-		targetVersions := []schema.GroupVersion{}
-		if !specifiedOutputVersion.Empty() {
-			targetVersions = append(targetVersions, specifiedOutputVersion)
-		}
-		targetVersions = append(targetVersions, schema.GroupVersion{Group: "", Version: "v1"})
-
-		converted, err := tryConvert(scheme.Scheme, object, targetVersions...)
+		converted, err := tryConvert(scheme.Scheme, object, version, scheme.Registry.GroupOrDie(api.GroupName).GroupVersion)
 		if err != nil {
 			return nil, err
 		}
@@ -240,7 +238,7 @@ func asVersionedObject(infos []*resource.Info, forceList bool, specifiedOutputVe
 	}
 
 	actualVersion := object.GetObjectKind().GroupVersionKind()
-	if actualVersion.Version != specifiedOutputVersion.Version {
+	if actualVersion.Version != version.Version {
 		defaultVersionInfo := ""
 		if len(actualVersion.Version) > 0 {
 			defaultVersionInfo = fmt.Sprintf("Defaulting to %q", actualVersion.Version)
@@ -253,17 +251,16 @@ func asVersionedObject(infos []*resource.Info, forceList bool, specifiedOutputVe
 // asVersionedObjects converts a list of infos into versioned objects. The provided
 // version will be preferred as the conversion target, but the Object's mapping version will be
 // used if that version is not present.
-func asVersionedObjects(infos []*resource.Info, specifiedOutputVersion schema.GroupVersion, encoder runtime.Encoder) ([]runtime.Object, error) {
+func asVersionedObjects(infos []*resource.Info, version schema.GroupVersion, encoder runtime.Encoder) ([]runtime.Object, error) {
 	objects := []runtime.Object{}
 	for _, info := range infos {
 		if info.Object == nil {
 			continue
 		}
 
-		targetVersions := []schema.GroupVersion{}
 		// objects that are not part of api.Scheme must be converted to JSON
 		// TODO: convert to map[string]interface{}, attach to runtime.Unknown?
-		if !specifiedOutputVersion.Empty() {
+		if !version.Empty() {
 			if _, _, err := scheme.Scheme.ObjectKinds(info.Object); runtime.IsNotRegisteredError(err) {
 				// TODO: ideally this would encode to version, but we don't expose multiple codecs here.
 				data, err := runtime.Encode(encoder, info.Object)
@@ -274,19 +271,9 @@ func asVersionedObjects(infos []*resource.Info, specifiedOutputVersion schema.Gr
 				objects = append(objects, &runtime.Unknown{Raw: data})
 				continue
 			}
-			targetVersions = append(targetVersions, specifiedOutputVersion)
-		} else {
-			gvks, _, err := scheme.Scheme.ObjectKinds(info.Object)
-			if err == nil {
-				for _, gvk := range gvks {
-					for _, version := range scheme.Scheme.PrioritizedVersionsForGroup(gvk.Group) {
-						targetVersions = append(targetVersions, version)
-					}
-				}
-			}
 		}
 
-		converted, err := tryConvert(scheme.Scheme, info.Object, targetVersions...)
+		converted, err := tryConvert(info.Mapping.ObjectConvertor, info.Object, version, info.Mapping.GroupVersionKind.GroupVersion())
 		if err != nil {
 			return nil, err
 		}

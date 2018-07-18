@@ -1,19 +1,17 @@
 approvers:
+- jbeda
 - luxas
+- mikedanese
+- krousey
 - timothysc
-- fabriziopandini
 reviewers:
+- mikedanese
 - luxas
+- dmmcquay
+- krousey
 - timothysc
 - fabriziopandini
+- jamiehannaford
 - kad
 - xiangpengzhao
-- stealthybox
-- liztio
-- chuckha
-- detiber
-- dixudx
-# Might want to add @kargakis, @jamiehannaford, @krousey and/or @dmmcquay back in the future
-labels: 
-- area/kubeadm
-- sig/cluster-lifecycle
+- mattmoyer

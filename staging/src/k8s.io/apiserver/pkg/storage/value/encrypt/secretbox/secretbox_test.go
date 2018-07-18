@@ -77,39 +77,12 @@ func TestSecretboxKeyRotation(t *testing.T) {
 	}
 }
 
-func BenchmarkSecretboxRead(b *testing.B) {
-	tests := []struct {
-		keyLength   int
-		valueLength int
-		expectStale bool
-	}{
-		{keyLength: 32, valueLength: 1024, expectStale: false},
-		{keyLength: 32, valueLength: 16384, expectStale: false},
-		{keyLength: 32, valueLength: 16384, expectStale: true},
-	}
-	for _, t := range tests {
-		name := fmt.Sprintf("%vKeyLength/%vValueLength/%vExpectStale", t.keyLength, t.valueLength, t.expectStale)
-		b.Run(name, func(b *testing.B) {
-			benchmarkSecretboxRead(b, t.keyLength, t.valueLength, t.expectStale)
-		})
-	}
-}
+func BenchmarkSecretboxRead_32_1024(b *testing.B)        { benchmarkSecretboxRead(b, 32, 1024, false) }
+func BenchmarkSecretboxRead_32_16384(b *testing.B)       { benchmarkSecretboxRead(b, 32, 16384, false) }
+func BenchmarkSecretboxRead_32_16384_Stale(b *testing.B) { benchmarkSecretboxRead(b, 32, 16384, true) }
 
-func BenchmarkSecretboxWrite(b *testing.B) {
-	tests := []struct {
-		keyLength   int
-		valueLength int
-	}{
-		{keyLength: 32, valueLength: 1024},
-		{keyLength: 32, valueLength: 16384},
-	}
-	for _, t := range tests {
-		name := fmt.Sprintf("%vKeyLength/%vValueLength", t.keyLength, t.valueLength)
-		b.Run(name, func(b *testing.B) {
-			benchmarkSecretboxWrite(b, t.keyLength, t.valueLength)
-		})
-	}
-}
+func BenchmarkSecretboxWrite_32_1024(b *testing.B)  { benchmarkSecretboxWrite(b, 32, 1024) }
+func BenchmarkSecretboxWrite_32_16384(b *testing.B) { benchmarkSecretboxWrite(b, 32, 16384) }
 
 func benchmarkSecretboxRead(b *testing.B, keyLength int, valueLength int, expectStale bool) {
 	p := value.NewPrefixTransformers(nil,

@@ -17,7 +17,6 @@ go_library(
         "yamlh.go",
         "yamlprivateh.go",
     ],
-    importmap = "k8s.io/kubernetes/vendor/gopkg.in/yaml.v2",
     importpath = "gopkg.in/yaml.v2",
     visibility = ["//visibility:public"],
 )

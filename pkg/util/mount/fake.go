@@ -17,7 +17,6 @@ limitations under the License.
 package mount
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"sync"
@@ -29,7 +28,6 @@ import (
 type FakeMounter struct {
 	MountPoints []MountPoint
 	Log         []FakeAction
-	Filesystem  map[string]FileType
 	// Some tests run things in parallel, make sure the mounter does not produce
 	// any golang's DATA RACE warnings.
 	mutex sync.Mutex
@@ -60,10 +58,8 @@ func (f *FakeMounter) Mount(source string, target string, fstype string, options
 	f.mutex.Lock()
 	defer f.mutex.Unlock()
 
-	opts := []string{}
-
+	// find 'bind' option
 	for _, option := range options {
-		// find 'bind' option
 		if option == "bind" {
 			// This is a bind-mount. In order to mimic linux behaviour, we must
 			// use the original device of the bind-mount as the real source.
@@ -82,11 +78,7 @@ func (f *FakeMounter) Mount(source string, target string, fstype string, options
 					break
 				}
 			}
-		}
-		// find 'ro' option
-		if option == "ro" {
-			// reuse MountPoint.Opts field to mark mount as readonly
-			opts = append(opts, "ro")
+			break
 		}
 	}
 
@@ -96,7 +88,7 @@ func (f *FakeMounter) Mount(source string, target string, fstype string, options
 		absTarget = target
 	}
 
-	f.MountPoints = append(f.MountPoints, MountPoint{Device: source, Path: absTarget, Type: fstype, Opts: opts})
+	f.MountPoints = append(f.MountPoints, MountPoint{Device: source, Path: absTarget, Type: fstype})
 	glog.V(5).Infof("Fake mounter: mounted %s to %s", source, absTarget)
 	f.Log = append(f.Log, FakeAction{Action: FakeActionMount, Target: absTarget, Source: source, FSType: fstype})
 	return nil
@@ -191,9 +183,6 @@ func (f *FakeMounter) MakeRShared(path string) error {
 }
 
 func (f *FakeMounter) GetFileType(pathname string) (FileType, error) {
-	if t, ok := f.Filesystem[pathname]; ok {
-		return t, nil
-	}
 	return FileType("fake"), nil
 }
 
@@ -205,45 +194,6 @@ func (f *FakeMounter) MakeFile(pathname string) error {
 	return nil
 }
 
-func (f *FakeMounter) ExistsPath(pathname string) (bool, error) {
-	if _, ok := f.Filesystem[pathname]; ok {
-		return true, nil
-	}
-	return false, nil
-}
-
-func (f *FakeMounter) EvalHostSymlinks(pathname string) (string, error) {
-	return pathname, nil
-}
-
-func (f *FakeMounter) PrepareSafeSubpath(subPath Subpath) (newHostPath string, cleanupAction func(), err error) {
-	return subPath.Path, nil, nil
-}
-
-func (f *FakeMounter) CleanSubPaths(podDir string, volumeName string) error {
-	return nil
-}
-func (mounter *FakeMounter) SafeMakeDir(pathname string, base string, perm os.FileMode) error {
-	return nil
-}
-
-func (f *FakeMounter) GetMountRefs(pathname string) ([]string, error) {
-	realpath, err := filepath.EvalSymlinks(pathname)
-	if err != nil {
-		// Ignore error in FakeMounter, because we actually didn't create files.
-		realpath = pathname
-	}
-	return getMountRefsByDev(f, realpath)
-}
-
-func (f *FakeMounter) GetFSGroup(pathname string) (int64, error) {
-	return -1, errors.New("GetFSGroup not implemented")
-}
-
-func (f *FakeMounter) GetSELinuxSupport(pathname string) (bool, error) {
-	return false, errors.New("GetSELinuxSupport not implemented")
-}
-
-func (f *FakeMounter) GetMode(pathname string) (os.FileMode, error) {
-	return 0, errors.New("not implemented")
+func (f *FakeMounter) ExistsPath(pathname string) bool {
+	return false
 }

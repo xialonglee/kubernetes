@@ -54,7 +54,10 @@ func (ds *depScanner) Next() (*build.Package, string) {
 
 // Continue looping?
 func (ds *depScanner) Continue() bool {
-	return len(ds.todo) > 0
+	if len(ds.todo) > 0 {
+		return true
+	}
+	return false
 }
 
 // Add a package and imports to the depScanner. Skips already processed/pending package/import combos
@@ -91,7 +94,7 @@ func fullPackageInDir(dir string) (*build.Package, error) {
 	var err error
 	pkg, ok := pkgCache[dir]
 	if !ok {
-		pkg, _ = build.ImportDir(dir, build.FindOnly)
+		pkg, err = build.ImportDir(dir, build.FindOnly)
 		if pkg.Goroot {
 			pkg, err = build.ImportDir(pkg.Dir, 0)
 		} else {

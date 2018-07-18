@@ -112,20 +112,18 @@ define VERIFY_HELP_INFO
 #
 # Args:
 #   BRANCH: Branch to be passed to verify-godeps.sh script.
-#   WHAT: List of checks to run
 #
 # Example:
 #   make verify
 #   make verify BRANCH=branch_x
-#   make verify WHAT="bazel typecheck"
 endef
 .PHONY: verify
 ifeq ($(PRINT_HELP),y)
 verify:
 	@echo "$$VERIFY_HELP_INFO"
 else
-verify:
-	KUBE_VERIFY_GIT_BRANCH=$(BRANCH) hack/make-rules/verify.sh
+verify: verify_generated_files
+	KUBE_VERIFY_GIT_BRANCH=$(BRANCH) hack/make-rules/verify.sh -v
 endif
 
 define QUICK_VERIFY_HELP_INFO
@@ -139,8 +137,8 @@ ifeq ($(PRINT_HELP),y)
 quick-verify:
 	@echo "$$QUICK_VERIFY_HELP_INFO"
 else
-quick-verify:
-	QUICK=true SILENT=false hack/make-rules/verify.sh
+quick-verify: verify_generated_files
+	hack/make-rules/verify.sh -v -Q
 endif
 
 define UPDATE_HELP_INFO
@@ -151,11 +149,11 @@ define UPDATE_HELP_INFO
 endef
 .PHONY: update
 ifeq ($(PRINT_HELP),y)
-update: generated_files
+update:
 	@echo "$$UPDATE_HELP_INFO"
 else
 update:
-	CALLED_FROM_MAIN_MAKEFILE=1 hack/make-rules/update.sh
+	hack/update-all.sh
 endif
 
 define CHECK_TEST_HELP_INFO
@@ -215,7 +213,7 @@ test-e2e:
 	@echo "$$TEST_E2E_HELP_INFO"
 else
 test-e2e: ginkgo generated_files
-	go run hack/e2e.go -- --build --up --test --down
+	go run hack/e2e.go -- -v --build --up --test --down
 endif
 
 define TEST_E2E_NODE_HELP_INFO
@@ -251,7 +249,7 @@ define TEST_E2E_NODE_HELP_INFO
 #  GUBERNATOR: For REMOTE=true only. Produce link to Gubernator to view logs.
 #	 Defaults to false.
 #  PARALLELISM: The number of gingko nodes to run.  Defaults to 8.
-#  RUNTIME: Container runtime to use (eg. docker, remote).
+#  RUNTIME: Container runtime to use (eg. docker, rkt, remote).
 #    Defaults to "docker".
 #  CONTAINER_RUNTIME_ENDPOINT: remote container endpoint to connect to.
 #   Used when RUNTIME is set to "remote".
@@ -391,7 +389,7 @@ define RELEASE_SKIP_TESTS_HELP_INFO
 #
 # Args:
 #   KUBE_RELEASE_RUN_TESTS: Whether to run tests. Set to 'y' to run tests anyways.
-#   KUBE_FASTBUILD: Whether to cross-compile for other architectures. Set to 'false' to do so.
+#   KUBE_FASTBUILD: Whether to cross-compile for other architectures. Set to 'true' to do so.
 #
 # Example:
 #   make release-skip-tests
@@ -468,6 +466,21 @@ $(filter-out %$(EXCLUDE_TARGET),$(notdir $(abspath $(wildcard cmd/*/)))): genera
 	hack/make-rules/build.sh cmd/$@
 endif
 
+define PLUGIN_CMD_HELP_INFO
+# Add rules for all directories in plugin/cmd/
+#
+# Example:
+#   make kube-scheduler
+endef
+.PHONY: $(notdir $(abspath $(wildcard plugin/cmd/*/)))
+ifeq ($(PRINT_HELP),y)
+$(notdir $(abspath $(wildcard plugin/cmd/*/))):
+	@echo "$$PLUGIN_CMD_HELP_INFO"
+else
+$(notdir $(abspath $(wildcard plugin/cmd/*/))): generated_files
+	hack/make-rules/build.sh plugin/cmd/$@
+endif
+
 define GENERATED_FILES_HELP_INFO
 # Produce auto-generated files needed for the build.
 #
@@ -480,6 +493,21 @@ generated_files:
 	@echo "$$GENERATED_FILES_HELP_INFO"
 else
 generated_files:
+	$(MAKE) -f Makefile.generated_files $@ CALLED_FROM_MAIN_MAKEFILE=1
+endif
+
+define VERIFY_GENERATED_FILES_HELP_INFO
+# Verify auto-generated files needed for the build.
+#
+# Example:
+#   make verify_generated_files
+endef
+.PHONY: verify_generated_files
+ifeq ($(PRINT_HELP),y)
+verify_generated_files:
+	@echo "$$VERIFY_GENERATED_FILES_HELP_INFO"
+else
+verify_generated_files:
 	$(MAKE) -f Makefile.generated_files $@ CALLED_FROM_MAIN_MAKEFILE=1
 endif
 
@@ -531,7 +559,7 @@ else
 # We don't want to build any of the release artifacts when running tests.
 # Some things in vendor don't build due to empty target lists for cross-platform rules.
 bazel-test:
-	bazel test --config=unit -- \
+	bazel test --build_tag_filters=-e2e,-integration --test_tag_filters=-e2e,-integration --flaky_test_attempts=3 -- \
 	  //... \
 	  //hack:verify-all \
 	  -//build/... \
@@ -549,7 +577,7 @@ bazel-test-integration:
 	@echo "$$BAZEL_TEST_INTEGRATION_HELP_INFO"
 else
 bazel-test-integration:
-	bazel test --config integration //test/integration/...
+	bazel test //test/integration/...
 endif
 
 ifeq ($(PRINT_HELP),y)

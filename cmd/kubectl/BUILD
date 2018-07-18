@@ -7,8 +7,19 @@ load("//pkg/version:def.bzl", "version_x_defs")
 
 go_binary(
     name = "kubectl",
-    embed = [":go_default_library"],
-    pure = "on",
+    gc_linkopts = select({
+        # Mac OS X doesn't support static binaries:
+        # https://developer.apple.com/library/content/qa/qa1118/_index.html
+        "@io_bazel_rules_go//go/platform:darwin_amd64": [],
+        "//conditions:default": [
+            "-linkmode",
+            "external",
+            "-extldflags",
+            "-static",
+        ],
+    }),
+    importpath = "k8s.io/kubernetes/cmd/kubectl",
+    library = ":go_default_library",
     visibility = ["//visibility:public"],
     x_defs = version_x_defs(),
 )
@@ -18,13 +29,7 @@ go_library(
     srcs = ["kubectl.go"],
     importpath = "k8s.io/kubernetes/cmd/kubectl",
     visibility = ["//visibility:private"],
-    deps = [
-        "//pkg/kubectl/cmd:go_default_library",
-        "//pkg/kubectl/util/logs:go_default_library",
-        "//staging/src/k8s.io/apiserver/pkg/util/flag:go_default_library",
-        "//staging/src/k8s.io/client-go/plugin/pkg/client/auth:go_default_library",
-        "//vendor/github.com/spf13/pflag:go_default_library",
-    ],
+    deps = ["//cmd/kubectl/app:go_default_library"],
 )
 
 filegroup(
@@ -35,7 +40,10 @@ filegroup(
 
 filegroup(
     name = "all-srcs",
-    srcs = [":package-srcs"],
+    srcs = [
+        ":package-srcs",
+        "//cmd/kubectl/app:all-srcs",
+    ],
     tags = ["automanaged"],
     visibility = [
         "//build/visible_to:cmd_kubectl_CONSUMERS",

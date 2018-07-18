@@ -31,7 +31,9 @@ func TestMasterExportsSymbols(t *testing.T) {
 			EnableMetrics: true,
 		},
 		ExtraConfig: master.ExtraConfig{
-			EnableLogsSupport: false,
+			EnableCoreControllers: false,
+			EnableUISupport:       false,
+			EnableLogsSupport:     false,
 		},
 	}
 	_ = &master.Master{

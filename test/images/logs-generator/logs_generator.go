@@ -62,11 +62,10 @@ func generateLogs(linesTotal int, duration time.Duration) {
 	delay := duration / time.Duration(linesTotal)
 	rand.Seed(time.Now().UnixNano())
 
-	ticker := time.NewTicker(delay)
-	defer ticker.Stop()
+	tick := time.Tick(delay)
 	for id := 0; id < linesTotal; id++ {
 		glog.Info(generateLogLine(id))
-		<-ticker.C
+		<-tick
 	}
 }
 

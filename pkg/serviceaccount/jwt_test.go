@@ -22,6 +22,7 @@ import (
 
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	apiserverserviceaccount "k8s.io/apiserver/pkg/authentication/serviceaccount"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
 	certutil "k8s.io/client-go/util/cert"
@@ -79,6 +80,17 @@ X024wzbiw1q07jFCyfQmODzURAx1VNT7QVUMdz/N8vy47/H40AZJ
 -----END RSA PRIVATE KEY-----
 `
 
+// openssl ecparam -name prime256v1 -genkey -out ecdsa256params.pem
+const ecdsaPrivateKeyWithParams = `-----BEGIN EC PARAMETERS-----
+BggqhkjOPQMBBw==
+-----END EC PARAMETERS-----
+-----BEGIN EC PRIVATE KEY-----
+MHcCAQEEIJ9LWDj3ZWe9CksPV7mZjD2dYXG9icfzxadCRwd3vr1toAoGCCqGSM49
+AwEHoUQDQgAEaLNEpzbaaNTCkKjBVj7sxpfJ1ifJQGNvcck4nrzcwFRuujwVDDJh
+95iIGwKCQeSg+yhdN6Q/p2XaxNIZlYmUhg==
+-----END EC PRIVATE KEY-----
+`
+
 // openssl ecparam -name prime256v1 -genkey -noout -out ecdsa256.pem
 const ecdsaPrivateKey = `-----BEGIN EC PRIVATE KEY-----
 MHcCAQEEIEZmTmUhuanLjPA2CLquXivuwBDHTt5XYwgIr/kA1LtRoAoGCCqGSM49
@@ -127,8 +139,8 @@ func TestTokenGenerateAndValidate(t *testing.T) {
 	}
 
 	// Generate the RSA token
-	rsaGenerator := serviceaccount.JWTTokenGenerator(serviceaccount.LegacyIssuer, getPrivateKey(rsaPrivateKey))
-	rsaToken, err := rsaGenerator.GenerateToken(serviceaccount.LegacyClaims(*serviceAccount, *rsaSecret))
+	rsaGenerator := serviceaccount.JWTTokenGenerator(getPrivateKey(rsaPrivateKey))
+	rsaToken, err := rsaGenerator.GenerateToken(*serviceAccount, *rsaSecret)
 	if err != nil {
 		t.Fatalf("error generating token: %v", err)
 	}
@@ -140,8 +152,8 @@ func TestTokenGenerateAndValidate(t *testing.T) {
 	}
 
 	// Generate the ECDSA token
-	ecdsaGenerator := serviceaccount.JWTTokenGenerator(serviceaccount.LegacyIssuer, getPrivateKey(ecdsaPrivateKey))
-	ecdsaToken, err := ecdsaGenerator.GenerateToken(serviceaccount.LegacyClaims(*serviceAccount, *ecdsaSecret))
+	ecdsaGenerator := serviceaccount.JWTTokenGenerator(getPrivateKey(ecdsaPrivateKey))
+	ecdsaToken, err := ecdsaGenerator.GenerateToken(*serviceAccount, *ecdsaSecret)
 	if err != nil {
 		t.Fatalf("error generating token: %v", err)
 	}
@@ -150,13 +162,6 @@ func TestTokenGenerateAndValidate(t *testing.T) {
 	}
 	ecdsaSecret.Data = map[string][]byte{
 		"token": []byte(ecdsaToken),
-	}
-
-	// Generate signer with same keys as RSA signer but different issuer
-	badIssuerGenerator := serviceaccount.JWTTokenGenerator("foo", getPrivateKey(rsaPrivateKey))
-	badIssuerToken, err := badIssuerGenerator.GenerateToken(serviceaccount.LegacyClaims(*serviceAccount, *rsaSecret))
-	if err != nil {
-		t.Fatalf("error generating token: %v", err)
 	}
 
 	testCases := map[string]struct {
@@ -200,13 +205,6 @@ func TestTokenGenerateAndValidate(t *testing.T) {
 			ExpectedUserName: expectedUserName,
 			ExpectedUserUID:  expectedUserUID,
 			ExpectedGroups:   []string{"system:serviceaccounts", "system:serviceaccounts:test"},
-		},
-		"valid key, invalid issuer (rsa)": {
-			Token:       badIssuerToken,
-			Client:      nil,
-			Keys:        []interface{}{getPublicKey(rsaPublicKey)},
-			ExpectedErr: false,
-			ExpectedOK:  false,
 		},
 		"valid key (ecdsa)": {
 			Token:            ecdsaToken,
@@ -266,7 +264,7 @@ func TestTokenGenerateAndValidate(t *testing.T) {
 
 	for k, tc := range testCases {
 		getter := serviceaccountcontroller.NewGetterFromClient(tc.Client)
-		authenticator := serviceaccount.JWTTokenAuthenticator(serviceaccount.LegacyIssuer, tc.Keys, serviceaccount.NewLegacyValidator(tc.Client != nil, getter))
+		authenticator := serviceaccount.JWTTokenAuthenticator(tc.Keys, tc.Client != nil, getter)
 
 		// An invalid, non-JWT token should always fail
 		if _, ok, err := authenticator.AuthenticateToken("invalid token"); err != nil || ok {
@@ -300,6 +298,25 @@ func TestTokenGenerateAndValidate(t *testing.T) {
 		if !reflect.DeepEqual(user.GetGroups(), tc.ExpectedGroups) {
 			t.Errorf("%s: Expected groups=%v, got %v", k, tc.ExpectedGroups, user.GetGroups())
 			continue
+		}
+	}
+}
+
+func TestMakeSplitUsername(t *testing.T) {
+	username := apiserverserviceaccount.MakeUsername("ns", "name")
+	ns, name, err := apiserverserviceaccount.SplitUsername(username)
+	if err != nil {
+		t.Errorf("Unexpected error %v", err)
+	}
+	if ns != "ns" || name != "name" {
+		t.Errorf("Expected ns/name, got %s/%s", ns, name)
+	}
+
+	invalid := []string{"test", "system:serviceaccount", "system:serviceaccount:", "system:serviceaccount:ns", "system:serviceaccount:ns:name:extra"}
+	for _, n := range invalid {
+		_, _, err := apiserverserviceaccount.SplitUsername("test")
+		if err == nil {
+			t.Errorf("Expected error for %s", n)
 		}
 	}
 }

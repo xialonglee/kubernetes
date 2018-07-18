@@ -10,7 +10,6 @@ go_library(
         "package_hashes.go",
         "suite.go",
     ],
-    importmap = "k8s.io/kubernetes/vendor/github.com/onsi/ginkgo/ginkgo/watch",
     importpath = "github.com/onsi/ginkgo/ginkgo/watch",
     visibility = ["//visibility:public"],
     deps = ["//vendor/github.com/onsi/ginkgo/ginkgo/testsuite:go_default_library"],

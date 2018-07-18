@@ -70,7 +70,7 @@
         "type": "integer",
         "paramType": "query",
         "name": "timeoutSeconds",
-        "description": "Timeout for the list/watch call. This limits the duration of the call, regardless of any activity or inactivity.",
+        "description": "Timeout for the list/watch call.",
         "required": false,
         "allowMultiple": false
        },
@@ -232,7 +232,7 @@
         "type": "integer",
         "paramType": "query",
         "name": "timeoutSeconds",
-        "description": "Timeout for the list/watch call. This limits the duration of the call, regardless of any activity or inactivity.",
+        "description": "Timeout for the list/watch call.",
         "required": false,
         "allowMultiple": false
        },
@@ -341,7 +341,7 @@
         "type": "integer",
         "paramType": "query",
         "name": "timeoutSeconds",
-        "description": "Timeout for the list/watch call. This limits the duration of the call, regardless of any activity or inactivity.",
+        "description": "Timeout for the list/watch call.",
         "required": false,
         "allowMultiple": false
        },
@@ -622,14 +622,6 @@
        },
        {
         "type": "string",
-        "paramType": "query",
-        "name": "dryRun",
-        "description": "When present, indicates that modifications should not be persisted. An invalid or unrecognized dryRun directive will result in a BadRequest response and no further processing of the request.",
-        "required": false,
-        "allowMultiple": false
-       },
-       {
-        "type": "string",
         "paramType": "path",
         "name": "namespace",
         "description": "object name and auth scope, such as for teams and projects",
@@ -649,11 +641,6 @@
        {
         "code": 200,
         "message": "OK",
-        "responseModel": "v1.Status"
-       },
-       {
-        "code": 202,
-        "message": "Accepted",
         "responseModel": "v1.Status"
        }
       ],
@@ -730,7 +717,7 @@
         "type": "integer",
         "paramType": "query",
         "name": "timeoutSeconds",
-        "description": "Timeout for the list/watch call. This limits the duration of the call, regardless of any activity or inactivity.",
+        "description": "Timeout for the list/watch call.",
         "required": false,
         "allowMultiple": false
        },
@@ -849,7 +836,7 @@
         "type": "integer",
         "paramType": "query",
         "name": "timeoutSeconds",
-        "description": "Timeout for the list/watch call. This limits the duration of the call, regardless of any activity or inactivity.",
+        "description": "Timeout for the list/watch call.",
         "required": false,
         "allowMultiple": false
        },
@@ -952,7 +939,7 @@
         "type": "integer",
         "paramType": "query",
         "name": "timeoutSeconds",
-        "description": "Timeout for the list/watch call. This limits the duration of the call, regardless of any activity or inactivity.",
+        "description": "Timeout for the list/watch call.",
         "required": false,
         "allowMultiple": false
        },
@@ -1225,7 +1212,7 @@
         "type": "integer",
         "paramType": "query",
         "name": "timeoutSeconds",
-        "description": "Timeout for the list/watch call. This limits the duration of the call, regardless of any activity or inactivity.",
+        "description": "Timeout for the list/watch call.",
         "required": false,
         "allowMultiple": false
        },
@@ -1387,7 +1374,7 @@
         "type": "integer",
         "paramType": "query",
         "name": "timeoutSeconds",
-        "description": "Timeout for the list/watch call. This limits the duration of the call, regardless of any activity or inactivity.",
+        "description": "Timeout for the list/watch call.",
         "required": false,
         "allowMultiple": false
        },
@@ -1496,7 +1483,7 @@
         "type": "integer",
         "paramType": "query",
         "name": "timeoutSeconds",
-        "description": "Timeout for the list/watch call. This limits the duration of the call, regardless of any activity or inactivity.",
+        "description": "Timeout for the list/watch call.",
         "required": false,
         "allowMultiple": false
        },
@@ -1777,14 +1764,6 @@
        },
        {
         "type": "string",
-        "paramType": "query",
-        "name": "dryRun",
-        "description": "When present, indicates that modifications should not be persisted. An invalid or unrecognized dryRun directive will result in a BadRequest response and no further processing of the request.",
-        "required": false,
-        "allowMultiple": false
-       },
-       {
-        "type": "string",
         "paramType": "path",
         "name": "namespace",
         "description": "object name and auth scope, such as for teams and projects",
@@ -1804,11 +1783,6 @@
        {
         "code": 200,
         "message": "OK",
-        "responseModel": "v1.Status"
-       },
-       {
-        "code": 202,
-        "message": "Accepted",
         "responseModel": "v1.Status"
        }
       ],
@@ -1885,7 +1859,7 @@
         "type": "integer",
         "paramType": "query",
         "name": "timeoutSeconds",
-        "description": "Timeout for the list/watch call. This limits the duration of the call, regardless of any activity or inactivity.",
+        "description": "Timeout for the list/watch call.",
         "required": false,
         "allowMultiple": false
        },
@@ -2004,7 +1978,7 @@
         "type": "integer",
         "paramType": "query",
         "name": "timeoutSeconds",
-        "description": "Timeout for the list/watch call. This limits the duration of the call, regardless of any activity or inactivity.",
+        "description": "Timeout for the list/watch call.",
         "required": false,
         "allowMultiple": false
        },
@@ -2107,7 +2081,7 @@
         "type": "integer",
         "paramType": "query",
         "name": "timeoutSeconds",
-        "description": "Timeout for the list/watch call. This limits the duration of the call, regardless of any activity or inactivity.",
+        "description": "Timeout for the list/watch call.",
         "required": false,
         "allowMultiple": false
        },
@@ -2153,7 +2127,7 @@
     "description": "API at /apis/extensions/v1beta1",
     "operations": [
      {
-      "type": "v1beta1.DeploymentStatus",
+      "type": "v1beta1.DeploymentRollback",
       "method": "POST",
       "summary": "create rollback of a Deployment",
       "nickname": "createNamespacedDeploymentRollback",
@@ -2195,17 +2169,17 @@
        {
         "code": 200,
         "message": "OK",
-        "responseModel": "v1beta1.DeploymentStatus"
+        "responseModel": "v1beta1.DeploymentRollback"
        },
        {
         "code": 201,
         "message": "Created",
-        "responseModel": "v1beta1.DeploymentStatus"
+        "responseModel": "v1beta1.DeploymentRollback"
        },
        {
         "code": 202,
         "message": "Accepted",
-        "responseModel": "v1beta1.DeploymentStatus"
+        "responseModel": "v1beta1.DeploymentRollback"
        }
       ],
       "produces": [
@@ -2621,7 +2595,7 @@
         "type": "integer",
         "paramType": "query",
         "name": "timeoutSeconds",
-        "description": "Timeout for the list/watch call. This limits the duration of the call, regardless of any activity or inactivity.",
+        "description": "Timeout for the list/watch call.",
         "required": false,
         "allowMultiple": false
        },
@@ -2783,7 +2757,7 @@
         "type": "integer",
         "paramType": "query",
         "name": "timeoutSeconds",
-        "description": "Timeout for the list/watch call. This limits the duration of the call, regardless of any activity or inactivity.",
+        "description": "Timeout for the list/watch call.",
         "required": false,
         "allowMultiple": false
        },
@@ -2892,7 +2866,7 @@
         "type": "integer",
         "paramType": "query",
         "name": "timeoutSeconds",
-        "description": "Timeout for the list/watch call. This limits the duration of the call, regardless of any activity or inactivity.",
+        "description": "Timeout for the list/watch call.",
         "required": false,
         "allowMultiple": false
        },
@@ -3173,14 +3147,6 @@
        },
        {
         "type": "string",
-        "paramType": "query",
-        "name": "dryRun",
-        "description": "When present, indicates that modifications should not be persisted. An invalid or unrecognized dryRun directive will result in a BadRequest response and no further processing of the request.",
-        "required": false,
-        "allowMultiple": false
-       },
-       {
-        "type": "string",
         "paramType": "path",
         "name": "namespace",
         "description": "object name and auth scope, such as for teams and projects",
@@ -3200,11 +3166,6 @@
        {
         "code": 200,
         "message": "OK",
-        "responseModel": "v1.Status"
-       },
-       {
-        "code": 202,
-        "message": "Accepted",
         "responseModel": "v1.Status"
        }
       ],
@@ -3281,7 +3242,7 @@
         "type": "integer",
         "paramType": "query",
         "name": "timeoutSeconds",
-        "description": "Timeout for the list/watch call. This limits the duration of the call, regardless of any activity or inactivity.",
+        "description": "Timeout for the list/watch call.",
         "required": false,
         "allowMultiple": false
        },
@@ -3400,7 +3361,7 @@
         "type": "integer",
         "paramType": "query",
         "name": "timeoutSeconds",
-        "description": "Timeout for the list/watch call. This limits the duration of the call, regardless of any activity or inactivity.",
+        "description": "Timeout for the list/watch call.",
         "required": false,
         "allowMultiple": false
        },
@@ -3503,7 +3464,7 @@
         "type": "integer",
         "paramType": "query",
         "name": "timeoutSeconds",
-        "description": "Timeout for the list/watch call. This limits the duration of the call, regardless of any activity or inactivity.",
+        "description": "Timeout for the list/watch call.",
         "required": false,
         "allowMultiple": false
        },
@@ -3776,7 +3737,7 @@
         "type": "integer",
         "paramType": "query",
         "name": "timeoutSeconds",
-        "description": "Timeout for the list/watch call. This limits the duration of the call, regardless of any activity or inactivity.",
+        "description": "Timeout for the list/watch call.",
         "required": false,
         "allowMultiple": false
        },
@@ -3938,7 +3899,7 @@
         "type": "integer",
         "paramType": "query",
         "name": "timeoutSeconds",
-        "description": "Timeout for the list/watch call. This limits the duration of the call, regardless of any activity or inactivity.",
+        "description": "Timeout for the list/watch call.",
         "required": false,
         "allowMultiple": false
        },
@@ -4047,7 +4008,7 @@
         "type": "integer",
         "paramType": "query",
         "name": "timeoutSeconds",
-        "description": "Timeout for the list/watch call. This limits the duration of the call, regardless of any activity or inactivity.",
+        "description": "Timeout for the list/watch call.",
         "required": false,
         "allowMultiple": false
        },
@@ -4328,14 +4289,6 @@
        },
        {
         "type": "string",
-        "paramType": "query",
-        "name": "dryRun",
-        "description": "When present, indicates that modifications should not be persisted. An invalid or unrecognized dryRun directive will result in a BadRequest response and no further processing of the request.",
-        "required": false,
-        "allowMultiple": false
-       },
-       {
-        "type": "string",
         "paramType": "path",
         "name": "namespace",
         "description": "object name and auth scope, such as for teams and projects",
@@ -4355,11 +4308,6 @@
        {
         "code": 200,
         "message": "OK",
-        "responseModel": "v1.Status"
-       },
-       {
-        "code": 202,
-        "message": "Accepted",
         "responseModel": "v1.Status"
        }
       ],
@@ -4436,7 +4384,7 @@
         "type": "integer",
         "paramType": "query",
         "name": "timeoutSeconds",
-        "description": "Timeout for the list/watch call. This limits the duration of the call, regardless of any activity or inactivity.",
+        "description": "Timeout for the list/watch call.",
         "required": false,
         "allowMultiple": false
        },
@@ -4555,7 +4503,7 @@
         "type": "integer",
         "paramType": "query",
         "name": "timeoutSeconds",
-        "description": "Timeout for the list/watch call. This limits the duration of the call, regardless of any activity or inactivity.",
+        "description": "Timeout for the list/watch call.",
         "required": false,
         "allowMultiple": false
        },
@@ -4658,7 +4606,7 @@
         "type": "integer",
         "paramType": "query",
         "name": "timeoutSeconds",
-        "description": "Timeout for the list/watch call. This limits the duration of the call, regardless of any activity or inactivity.",
+        "description": "Timeout for the list/watch call.",
         "required": false,
         "allowMultiple": false
        },
@@ -4761,7 +4709,7 @@
         "type": "integer",
         "paramType": "query",
         "name": "timeoutSeconds",
-        "description": "Timeout for the list/watch call. This limits the duration of the call, regardless of any activity or inactivity.",
+        "description": "Timeout for the list/watch call.",
         "required": false,
         "allowMultiple": false
        },
@@ -4907,7 +4855,7 @@
         "type": "integer",
         "paramType": "query",
         "name": "timeoutSeconds",
-        "description": "Timeout for the list/watch call. This limits the duration of the call, regardless of any activity or inactivity.",
+        "description": "Timeout for the list/watch call.",
         "required": false,
         "allowMultiple": false
        },
@@ -5008,7 +4956,7 @@
         "type": "integer",
         "paramType": "query",
         "name": "timeoutSeconds",
-        "description": "Timeout for the list/watch call. This limits the duration of the call, regardless of any activity or inactivity.",
+        "description": "Timeout for the list/watch call.",
         "required": false,
         "allowMultiple": false
        },
@@ -5257,14 +5205,6 @@
        },
        {
         "type": "string",
-        "paramType": "query",
-        "name": "dryRun",
-        "description": "When present, indicates that modifications should not be persisted. An invalid or unrecognized dryRun directive will result in a BadRequest response and no further processing of the request.",
-        "required": false,
-        "allowMultiple": false
-       },
-       {
-        "type": "string",
         "paramType": "path",
         "name": "name",
         "description": "name of the PodSecurityPolicy",
@@ -5276,11 +5216,6 @@
        {
         "code": 200,
         "message": "OK",
-        "responseModel": "v1.Status"
-       },
-       {
-        "code": 202,
-        "message": "Accepted",
         "responseModel": "v1.Status"
        }
       ],
@@ -5357,7 +5292,7 @@
         "type": "integer",
         "paramType": "query",
         "name": "timeoutSeconds",
-        "description": "Timeout for the list/watch call. This limits the duration of the call, regardless of any activity or inactivity.",
+        "description": "Timeout for the list/watch call.",
         "required": false,
         "allowMultiple": false
        },
@@ -5468,7 +5403,7 @@
         "type": "integer",
         "paramType": "query",
         "name": "timeoutSeconds",
-        "description": "Timeout for the list/watch call. This limits the duration of the call, regardless of any activity or inactivity.",
+        "description": "Timeout for the list/watch call.",
         "required": false,
         "allowMultiple": false
        },
@@ -5630,7 +5565,7 @@
         "type": "integer",
         "paramType": "query",
         "name": "timeoutSeconds",
-        "description": "Timeout for the list/watch call. This limits the duration of the call, regardless of any activity or inactivity.",
+        "description": "Timeout for the list/watch call.",
         "required": false,
         "allowMultiple": false
        },
@@ -5739,7 +5674,7 @@
         "type": "integer",
         "paramType": "query",
         "name": "timeoutSeconds",
-        "description": "Timeout for the list/watch call. This limits the duration of the call, regardless of any activity or inactivity.",
+        "description": "Timeout for the list/watch call.",
         "required": false,
         "allowMultiple": false
        },
@@ -6020,14 +5955,6 @@
        },
        {
         "type": "string",
-        "paramType": "query",
-        "name": "dryRun",
-        "description": "When present, indicates that modifications should not be persisted. An invalid or unrecognized dryRun directive will result in a BadRequest response and no further processing of the request.",
-        "required": false,
-        "allowMultiple": false
-       },
-       {
-        "type": "string",
         "paramType": "path",
         "name": "namespace",
         "description": "object name and auth scope, such as for teams and projects",
@@ -6047,11 +5974,6 @@
        {
         "code": 200,
         "message": "OK",
-        "responseModel": "v1.Status"
-       },
-       {
-        "code": 202,
-        "message": "Accepted",
         "responseModel": "v1.Status"
        }
       ],
@@ -6128,7 +6050,7 @@
         "type": "integer",
         "paramType": "query",
         "name": "timeoutSeconds",
-        "description": "Timeout for the list/watch call. This limits the duration of the call, regardless of any activity or inactivity.",
+        "description": "Timeout for the list/watch call.",
         "required": false,
         "allowMultiple": false
        },
@@ -6247,7 +6169,7 @@
         "type": "integer",
         "paramType": "query",
         "name": "timeoutSeconds",
-        "description": "Timeout for the list/watch call. This limits the duration of the call, regardless of any activity or inactivity.",
+        "description": "Timeout for the list/watch call.",
         "required": false,
         "allowMultiple": false
        },
@@ -6350,7 +6272,7 @@
         "type": "integer",
         "paramType": "query",
         "name": "timeoutSeconds",
-        "description": "Timeout for the list/watch call. This limits the duration of the call, regardless of any activity or inactivity.",
+        "description": "Timeout for the list/watch call.",
         "required": false,
         "allowMultiple": false
        },
@@ -7372,7 +7294,7 @@
      },
      "dnsPolicy": {
       "type": "string",
-      "description": "Set DNS policy for the pod. Defaults to \"ClusterFirst\". Valid values are 'ClusterFirstWithHostNet', 'ClusterFirst', 'Default' or 'None'. DNS parameters given in DNSConfig will be merged with the policy selected with DNSPolicy. To have DNS options set along with hostNetwork, you have to specify DNS policy explicitly to 'ClusterFirstWithHostNet'."
+      "description": "Set DNS policy for the pod. Defaults to \"ClusterFirst\". Valid values are 'ClusterFirstWithHostNet', 'ClusterFirst', 'Default' or 'None'. DNS parameters given in DNSConfig will be merged with the policy selected with DNSPolicy. To have DNS options set along with hostNetwork, you have to specify DNS policy explicitly to 'ClusterFirstWithHostNet'. Note that 'None' policy is an alpha feature introduced in v1.9 and CustomPodDNS feature gate must be enabled to use it."
      },
      "nodeSelector": {
       "type": "object",
@@ -7405,10 +7327,6 @@
      "hostIPC": {
       "type": "boolean",
       "description": "Use the host's ipc namespace. Optional: Default to false."
-     },
-     "shareProcessNamespace": {
-      "type": "boolean",
-      "description": "Share a single process namespace between all of the containers in a pod. When this is set containers will be able to view and signal processes from other containers in the same pod, and the first process in each container will not be assigned PID 1. HostPID and ShareProcessNamespace cannot both be set. Optional: Default to false. This field is alpha-level and is honored only by servers that enable the PodShareProcessNamespace feature."
      },
      "securityContext": {
       "$ref": "v1.PodSecurityContext",
@@ -7453,7 +7371,7 @@
      },
      "priorityClassName": {
       "type": "string",
-      "description": "If specified, indicates the pod's priority. \"system-node-critical\" and \"system-cluster-critical\" are two special keywords which indicate the highest priorities with the former being the highest priority. Any other name must be defined by creating a PriorityClass object with that name. If not specified, the pod priority will be default or zero if there is no default."
+      "description": "If specified, indicates the pod's priority. \"SYSTEM\" is a special keyword which indicates the highest priority. Any other name must be defined by creating a PriorityClass object with that name. If not specified, the pod priority will be default or zero if there is no default."
      },
      "priority": {
       "type": "integer",
@@ -7462,14 +7380,7 @@
      },
      "dnsConfig": {
       "$ref": "v1.PodDNSConfig",
-      "description": "Specifies the DNS parameters of a pod. Parameters specified here will be merged to the generated DNS configuration based on DNSPolicy."
-     },
-     "readinessGates": {
-      "type": "array",
-      "items": {
-       "$ref": "v1.PodReadinessGate"
-      },
-      "description": "If specified, all readiness gates will be evaluated for pod readiness. A pod is ready when all its containers are ready AND all conditions specified in the readiness gates have status equal to \"True\" More info: https://github.com/kubernetes/community/blob/master/keps/sig-network/0007-pod-ready%2B%2B.md"
+      "description": "Specifies the DNS parameters of a pod. Parameters specified here will be merged to the generated DNS configuration based on DNSPolicy. This is an alpha feature introduced in v1.9 and CustomPodDNS feature gate must be enabled to use it."
      }
     }
    },
@@ -7502,7 +7413,7 @@
      },
      "gitRepo": {
       "$ref": "v1.GitRepoVolumeSource",
-      "description": "GitRepo represents a git repository at a particular revision. DEPRECATED: GitRepo is deprecated. To provision a container with a git repo, mount an EmptyDir into an InitContainer that clones the repo using git, then mount the EmptyDir into the Pod's container."
+      "description": "GitRepo represents a git repository at a particular revision."
      },
      "secret": {
       "$ref": "v1.SecretVolumeSource",
@@ -7683,7 +7594,7 @@
    },
    "v1.GitRepoVolumeSource": {
     "id": "v1.GitRepoVolumeSource",
-    "description": "Represents a volume that is populated with the contents of a git repository. Git repo volumes do not support ownership management. Git repo volumes support SELinux relabeling.\n\nDEPRECATED: GitRepo is deprecated. To provision a container with a git repo, mount an EmptyDir into an InitContainer that clones the repo using git, then mount the EmptyDir into the Pod's container.",
+    "description": "Represents a volume that is populated with the contents of a git repository. Git repo volumes do not support ownership management. Git repo volumes support SELinux relabeling.",
     "required": [
      "repository"
     ],
@@ -7973,10 +7884,6 @@
      "readOnly": {
       "type": "boolean",
       "description": "Optional: Defaults to false (read/write). ReadOnly here will force the ReadOnly setting in VolumeMounts. More info: https://releases.k8s.io/HEAD/examples/mysql-cinder-pd/README.md"
-     },
-     "secretRef": {
-      "$ref": "v1.LocalObjectReference",
-      "description": "Optional: points to a secret object containing parameters used to connect to OpenStack."
      }
     }
    },
@@ -8343,10 +8250,6 @@
      "configMap": {
       "$ref": "v1.ConfigMapProjection",
       "description": "information about the configMap data to project"
-     },
-     "serviceAccountToken": {
-      "$ref": "v1.ServiceAccountTokenProjection",
-      "description": "information about the serviceAccountToken data to project"
      }
     }
    },
@@ -8402,28 +8305,6 @@
      "optional": {
       "type": "boolean",
       "description": "Specify whether the ConfigMap or it's keys must be defined"
-     }
-    }
-   },
-   "v1.ServiceAccountTokenProjection": {
-    "id": "v1.ServiceAccountTokenProjection",
-    "description": "ServiceAccountTokenProjection represents a projected service account token volume. This projection can be used to insert a service account token into the pods runtime filesystem for use against APIs (Kubernetes API Server or otherwise).",
-    "required": [
-     "path"
-    ],
-    "properties": {
-     "audience": {
-      "type": "string",
-      "description": "Audience is the intended audience of the token. A recipient of a token must identify itself with an identifier specified in the audience of the token, and otherwise should reject the token. The audience defaults to the identifier of the apiserver."
-     },
-     "expirationSeconds": {
-      "type": "integer",
-      "format": "int64",
-      "description": "ExpirationSeconds is the requested duration of validity of the service account token. As the token approaches expiration, the kubelet volume plugin will proactively rotate the service account token. The kubelet will start trying to rotate the token if the token is older than 80 percent of its time to live or if the token is older than 24 hours.Defaults to 1 hour and must be at least 10 minutes."
-     },
-     "path": {
-      "type": "string",
-      "description": "Path is the path relative to the mount point of the file to project the token into."
      }
     }
    },
@@ -8483,7 +8364,7 @@
      },
      "storageMode": {
       "type": "string",
-      "description": "Indicates whether the storage for a volume should be ThickProvisioned or ThinProvisioned. Default is ThinProvisioned."
+      "description": "Indicates whether the storage for a volume should be ThickProvisioned or ThinProvisioned."
      },
      "volumeName": {
       "type": "string",
@@ -8491,7 +8372,7 @@
      },
      "fsType": {
       "type": "string",
-      "description": "Filesystem type to mount. Must be a filesystem type supported by the host operating system. Ex. \"ext4\", \"xfs\", \"ntfs\". Default is \"xfs\"."
+      "description": "Filesystem type to mount. Must be a filesystem type supported by the host operating system. Ex. \"ext4\", \"xfs\", \"ntfs\". Implicitly inferred to be \"ext4\" if unspecified."
      },
      "readOnly": {
       "type": "boolean",
@@ -8676,7 +8557,7 @@
     "properties": {
      "prefix": {
       "type": "string",
-      "description": "An optional identifier to prepend to each key in the ConfigMap. Must be a C_IDENTIFIER."
+      "description": "An optional identifer to prepend to each key in the ConfigMap. Must be a C_IDENTIFIER."
      },
      "configMapRef": {
       "$ref": "v1.ConfigMapEnvSource",
@@ -8841,7 +8722,7 @@
      },
      "mountPropagation": {
       "$ref": "v1.MountPropagationMode",
-      "description": "mountPropagation determines how mounts are propagated from the host to container and the other way around. When not set, MountPropagationNone is used. This field is beta in 1.10."
+      "description": "mountPropagation determines how mounts are propagated from the host to container and the other way around. When not set, MountPropagationHostToContainer is used. This field is alpha in 1.8 and can be reworked or removed in a future release."
      }
     }
    },
@@ -9043,11 +8924,6 @@
       "format": "int64",
       "description": "The UID to run the entrypoint of the container process. Defaults to user specified in image metadata if unspecified. May also be set in PodSecurityContext.  If set in both SecurityContext and PodSecurityContext, the value specified in SecurityContext takes precedence."
      },
-     "runAsGroup": {
-      "type": "integer",
-      "format": "int64",
-      "description": "The GID to run the entrypoint of the container process. Uses runtime default if unset. May also be set in PodSecurityContext.  If set in both SecurityContext and PodSecurityContext, the value specified in SecurityContext takes precedence."
-     },
      "runAsNonRoot": {
       "type": "boolean",
       "description": "Indicates that the container must run as a non-root user. If true, the Kubelet will validate the image at runtime to ensure that it does not run as UID 0 (root) and fail to start the container if it does. If unset or false, no such validation will be performed. May also be set in PodSecurityContext.  If set in both SecurityContext and PodSecurityContext, the value specified in SecurityContext takes precedence."
@@ -9121,11 +8997,6 @@
       "format": "int64",
       "description": "The UID to run the entrypoint of the container process. Defaults to user specified in image metadata if unspecified. May also be set in SecurityContext.  If set in both SecurityContext and PodSecurityContext, the value specified in SecurityContext takes precedence for that container."
      },
-     "runAsGroup": {
-      "type": "integer",
-      "format": "int64",
-      "description": "The GID to run the entrypoint of the container process. Uses runtime default if unset. May also be set in SecurityContext.  If set in both SecurityContext and PodSecurityContext, the value specified in SecurityContext takes precedence for that container."
-     },
      "runAsNonRoot": {
       "type": "boolean",
       "description": "Indicates that the container must run as a non-root user. If true, the Kubelet will validate the image at runtime to ensure that it does not run as UID 0 (root) and fail to start the container if it does. If unset or false, no such validation will be performed. May also be set in SecurityContext.  If set in both SecurityContext and PodSecurityContext, the value specified in SecurityContext takes precedence."
@@ -9141,31 +9012,6 @@
       "type": "integer",
       "format": "int64",
       "description": "A special supplemental group that applies to all containers in a pod. Some volume types allow the Kubelet to change the ownership of that volume to be owned by the pod:\n\n1. The owning GID will be the FSGroup 2. The setgid bit is set (new files created in the volume will be owned by FSGroup) 3. The permission bits are OR'd with rw-rw "
-     },
-     "sysctls": {
-      "type": "array",
-      "items": {
-       "$ref": "v1.Sysctl"
-      },
-      "description": "Sysctls hold a list of namespaced sysctls used for the pod. Pods with unsupported sysctls (by the container runtime) might fail to launch."
-     }
-    }
-   },
-   "v1.Sysctl": {
-    "id": "v1.Sysctl",
-    "description": "Sysctl defines a kernel parameter to be set",
-    "required": [
-     "name",
-     "value"
-    ],
-    "properties": {
-     "name": {
-      "type": "string",
-      "description": "Name of a property to set"
-     },
-     "value": {
-      "type": "string",
-      "description": "Value of a property to set"
      }
     }
    },
@@ -9222,21 +9068,17 @@
    },
    "v1.NodeSelectorTerm": {
     "id": "v1.NodeSelectorTerm",
-    "description": "A null or empty node selector term matches no objects. The requirements of them are ANDed. The TopologySelectorTerm type implements a subset of the NodeSelectorTerm.",
+    "description": "A null or empty node selector term matches no objects.",
+    "required": [
+     "matchExpressions"
+    ],
     "properties": {
      "matchExpressions": {
       "type": "array",
       "items": {
        "$ref": "v1.NodeSelectorRequirement"
       },
-      "description": "A list of node selector requirements by node's labels."
-     },
-     "matchFields": {
-      "type": "array",
-      "items": {
-       "$ref": "v1.NodeSelectorRequirement"
-      },
-      "description": "A list of node selector requirements by node's fields."
+      "description": "Required. A list of node selector requirements. The requirements are ANDed."
      }
     }
    },
@@ -9451,19 +9293,6 @@
      }
     }
    },
-   "v1.PodReadinessGate": {
-    "id": "v1.PodReadinessGate",
-    "description": "PodReadinessGate contains the reference to a pod condition",
-    "required": [
-     "conditionType"
-    ],
-    "properties": {
-     "conditionType": {
-      "type": "string",
-      "description": "ConditionType refers to a condition in the pod's condition list with matching type."
-     }
-    }
-   },
    "v1beta1.DaemonSetUpdateStrategy": {
     "id": "v1beta1.DaemonSetUpdateStrategy",
     "properties": {
@@ -9629,13 +9458,6 @@
      "propagationPolicy": {
       "$ref": "v1.DeletionPropagation",
       "description": "Whether and how garbage collection will be performed. Either this field or OrphanDependents may be set, but not both. The default policy is decided by the existing finalizer set in the metadata.finalizers and the resource-specific default policy. Acceptable values are: 'Orphan' - orphan the dependents; 'Background' - allow the garbage collector to delete the dependents in the background; 'Foreground' - a cascading policy that deletes all dependents in the foreground."
-     },
-     "dryRun": {
-      "type": "array",
-      "items": {
-       "type": "string"
-      },
-      "description": "When present, indicates that modifications should not be persisted. An invalid or unrecognized dryRun directive will result in a BadRequest response and no further processing of the request."
      }
     }
    },
@@ -10294,15 +10116,15 @@
     "properties": {
      "podSelector": {
       "$ref": "v1.LabelSelector",
-      "description": "This is a label selector which selects Pods. This field follows standard label selector semantics; if present but empty, it selects all pods.\n\nIf NamespaceSelector is also set, then the NetworkPolicyPeer as a whole selects the Pods matching PodSelector in the Namespaces selected by NamespaceSelector. Otherwise it selects the Pods matching PodSelector in the policy's own Namespace."
+      "description": "This is a label selector which selects Pods in this namespace. This field follows standard label selector semantics. If present but empty, this selector selects all pods in this namespace."
      },
      "namespaceSelector": {
       "$ref": "v1.LabelSelector",
-      "description": "Selects Namespaces using cluster-scoped labels. This field follows standard label selector semantics; if present but empty, it selects all namespaces.\n\nIf PodSelector is also set, then the NetworkPolicyPeer as a whole selects the Pods matching PodSelector in the Namespaces selected by NamespaceSelector. Otherwise it selects all Pods in the Namespaces selected by NamespaceSelector."
+      "description": "Selects Namespaces using cluster scoped-labels.  This matches all pods in all namespaces selected by this label selector. This field follows standard label selector semantics. If present but empty, this selector selects all namespaces."
      },
      "ipBlock": {
       "$ref": "v1beta1.IPBlock",
-      "description": "IPBlock defines policy on a particular IPBlock. If this field is set then neither of the other fields can be."
+      "description": "IPBlock defines policy on a particular IPBlock"
      }
     }
    },
@@ -10352,7 +10174,7 @@
    },
    "v1beta1.PodSecurityPolicyList": {
     "id": "v1beta1.PodSecurityPolicyList",
-    "description": "PodSecurityPolicyList is a list of PodSecurityPolicy objects. Deprecated: use PodSecurityPolicyList from policy API Group instead.",
+    "description": "Pod Security Policy List is a list of PodSecurityPolicy objects.",
     "required": [
      "items"
     ],
@@ -10374,13 +10196,13 @@
       "items": {
        "$ref": "v1beta1.PodSecurityPolicy"
       },
-      "description": "items is a list of schema objects."
+      "description": "Items is a list of schema objects."
      }
     }
    },
    "v1beta1.PodSecurityPolicy": {
     "id": "v1beta1.PodSecurityPolicy",
-    "description": "PodSecurityPolicy governs the ability to make requests that affect the Security Context that will be applied to a pod and container. Deprecated: use PodSecurityPolicy from policy API Group instead.",
+    "description": "Pod Security Policy governs the ability to make requests that affect the Security Context that will be applied to a pod and container.",
     "properties": {
      "kind": {
       "type": "string",
@@ -10402,7 +10224,7 @@
    },
    "v1beta1.PodSecurityPolicySpec": {
     "id": "v1beta1.PodSecurityPolicySpec",
-    "description": "PodSecurityPolicySpec defines the policy enforced. Deprecated: use PodSecurityPolicySpec from policy API Group instead.",
+    "description": "Pod Security Policy Spec defines the policy enforced.",
     "required": [
      "seLinux",
      "runAsUser",
@@ -10419,28 +10241,28 @@
       "items": {
        "$ref": "v1.Capability"
       },
-      "description": "defaultAddCapabilities is the default set of capabilities that will be added to the container unless the pod spec specifically drops the capability.  You may not list a capability in both defaultAddCapabilities and requiredDropCapabilities. Capabilities added here are implicitly allowed, and need not be included in the allowedCapabilities list."
+      "description": "DefaultAddCapabilities is the default set of capabilities that will be added to the container unless the pod spec specifically drops the capability.  You may not list a capability in both DefaultAddCapabilities and RequiredDropCapabilities. Capabilities added here are implicitly allowed, and need not be included in the AllowedCapabilities list."
      },
      "requiredDropCapabilities": {
       "type": "array",
       "items": {
        "$ref": "v1.Capability"
       },
-      "description": "requiredDropCapabilities are the capabilities that will be dropped from the container.  These are required to be dropped and cannot be added."
+      "description": "RequiredDropCapabilities are the capabilities that will be dropped from the container.  These are required to be dropped and cannot be added."
      },
      "allowedCapabilities": {
       "type": "array",
       "items": {
        "$ref": "v1.Capability"
       },
-      "description": "allowedCapabilities is a list of capabilities that can be requested to add to the container. Capabilities in this field may be added at the pod author's discretion. You must not list a capability in both allowedCapabilities and requiredDropCapabilities."
+      "description": "AllowedCapabilities is a list of capabilities that can be requested to add to the container. Capabilities in this field may be added at the pod author's discretion. You must not list a capability in both AllowedCapabilities and RequiredDropCapabilities."
      },
      "volumes": {
       "type": "array",
       "items": {
        "$ref": "v1beta1.FSType"
       },
-      "description": "volumes is a white list of allowed volume plugins. Empty indicates that no volumes may be used. To allow all volumes you may use '*'."
+      "description": "volumes is a white list of allowed volume plugins.  Empty indicates that all plugins may be used."
      },
      "hostNetwork": {
       "type": "boolean",
@@ -10471,51 +10293,37 @@
      },
      "supplementalGroups": {
       "$ref": "v1beta1.SupplementalGroupsStrategyOptions",
-      "description": "supplementalGroups is the strategy that will dictate what supplemental groups are used by the SecurityContext."
+      "description": "SupplementalGroups is the strategy that will dictate what supplemental groups are used by the SecurityContext."
      },
      "fsGroup": {
       "$ref": "v1beta1.FSGroupStrategyOptions",
-      "description": "fsGroup is the strategy that will dictate what fs group is used by the SecurityContext."
+      "description": "FSGroup is the strategy that will dictate what fs group is used by the SecurityContext."
      },
      "readOnlyRootFilesystem": {
       "type": "boolean",
-      "description": "readOnlyRootFilesystem when set to true will force containers to run with a read only root file system.  If the container specifically requests to run with a non-read only root file system the PSP should deny the pod. If set to false the container may run with a read only root file system if it wishes but it will not be forced to."
+      "description": "ReadOnlyRootFilesystem when set to true will force containers to run with a read only root file system.  If the container specifically requests to run with a non-read only root file system the PSP should deny the pod. If set to false the container may run with a read only root file system if it wishes but it will not be forced to."
      },
      "defaultAllowPrivilegeEscalation": {
       "type": "boolean",
-      "description": "defaultAllowPrivilegeEscalation controls the default setting for whether a process can gain more privileges than its parent process."
+      "description": "DefaultAllowPrivilegeEscalation controls the default setting for whether a process can gain more privileges than its parent process."
      },
      "allowPrivilegeEscalation": {
       "type": "boolean",
-      "description": "allowPrivilegeEscalation determines if a pod can request to allow privilege escalation. If unspecified, defaults to true."
+      "description": "AllowPrivilegeEscalation determines if a pod can request to allow privilege escalation. If unspecified, defaults to true."
      },
      "allowedHostPaths": {
       "type": "array",
       "items": {
        "$ref": "v1beta1.AllowedHostPath"
       },
-      "description": "allowedHostPaths is a white list of allowed host paths. Empty indicates that all host paths may be used."
+      "description": "is a white list of allowed host paths. Empty indicates that all host paths may be used."
      },
      "allowedFlexVolumes": {
       "type": "array",
       "items": {
        "$ref": "v1beta1.AllowedFlexVolume"
       },
-      "description": "allowedFlexVolumes is a whitelist of allowed Flexvolumes.  Empty or nil indicates that all Flexvolumes may be used.  This parameter is effective only when the usage of the Flexvolumes is allowed in the \"volumes\" field."
-     },
-     "allowedUnsafeSysctls": {
-      "type": "array",
-      "items": {
-       "type": "string"
-      },
-      "description": "allowedUnsafeSysctls is a list of explicitly allowed unsafe sysctls, defaults to none. Each entry is either a plain sysctl name or ends in \"*\" in which case it is considered as a prefix of allowed sysctls. Single * means all unsafe sysctls are allowed. Kubelet has to whitelist all allowed unsafe sysctls explicitly to avoid rejection.\n\nExamples: e.g. \"foo/*\" allows \"foo/bar\", \"foo/baz\", etc. e.g. \"foo.*\" allows \"foo.bar\", \"foo.baz\", etc."
-     },
-     "forbiddenSysctls": {
-      "type": "array",
-      "items": {
-       "type": "string"
-      },
-      "description": "forbiddenSysctls is a list of explicitly forbidden sysctls, defaults to none. Each entry is either a plain sysctl name or ends in \"*\" in which case it is considered as a prefix of forbidden sysctls. Single * means all sysctls are forbidden.\n\nExamples: e.g. \"foo/*\" forbids \"foo/bar\", \"foo/baz\", etc. e.g. \"foo.*\" forbids \"foo.bar\", \"foo.baz\", etc."
+      "description": "AllowedFlexVolumes is a whitelist of allowed Flexvolumes.  Empty or nil indicates that all Flexvolumes may be used.  This parameter is effective only when the usage of the Flexvolumes is allowed in the \"Volumes\" field."
      }
     }
    },
@@ -10525,7 +10333,7 @@
    },
    "v1beta1.HostPortRange": {
     "id": "v1beta1.HostPortRange",
-    "description": "HostPortRange defines a range of host ports that will be enabled by a policy for pods to use.  It requires both the start and end to be defined. Deprecated: use HostPortRange from policy API Group instead.",
+    "description": "Host Port Range defines a range of host ports that will be enabled by a policy for pods to use.  It requires both the start and end to be defined.",
     "required": [
      "min",
      "max"
@@ -10545,14 +10353,14 @@
    },
    "v1beta1.SELinuxStrategyOptions": {
     "id": "v1beta1.SELinuxStrategyOptions",
-    "description": "SELinuxStrategyOptions defines the strategy type and any options used to create the strategy. Deprecated: use SELinuxStrategyOptions from policy API Group instead.",
+    "description": "SELinux  Strategy Options defines the strategy type and any options used to create the strategy.",
     "required": [
      "rule"
     ],
     "properties": {
      "rule": {
       "type": "string",
-      "description": "rule is the strategy that will dictate the allowable labels that may be set."
+      "description": "type is the strategy that will dictate the allowable labels that may be set."
      },
      "seLinuxOptions": {
       "$ref": "v1.SELinuxOptions",
@@ -10562,27 +10370,27 @@
    },
    "v1beta1.RunAsUserStrategyOptions": {
     "id": "v1beta1.RunAsUserStrategyOptions",
-    "description": "RunAsUserStrategyOptions defines the strategy type and any options used to create the strategy. Deprecated: use RunAsUserStrategyOptions from policy API Group instead.",
+    "description": "Run A sUser Strategy Options defines the strategy type and any options used to create the strategy.",
     "required": [
      "rule"
     ],
     "properties": {
      "rule": {
       "type": "string",
-      "description": "rule is the strategy that will dictate the allowable RunAsUser values that may be set."
+      "description": "Rule is the strategy that will dictate the allowable RunAsUser values that may be set."
      },
      "ranges": {
       "type": "array",
       "items": {
        "$ref": "v1beta1.IDRange"
       },
-      "description": "ranges are the allowed ranges of uids that may be used. If you would like to force a single uid then supply a single range with the same start and end. Required for MustRunAs."
+      "description": "Ranges are the allowed ranges of uids that may be used."
      }
     }
    },
    "v1beta1.IDRange": {
     "id": "v1beta1.IDRange",
-    "description": "IDRange provides a min/max of an allowed range of IDs. Deprecated: use IDRange from policy API Group instead.",
+    "description": "ID Range provides a min/max of an allowed range of IDs.",
     "required": [
      "min",
      "max"
@@ -10591,73 +10399,69 @@
      "min": {
       "type": "integer",
       "format": "int64",
-      "description": "min is the start of the range, inclusive."
+      "description": "Min is the start of the range, inclusive."
      },
      "max": {
       "type": "integer",
       "format": "int64",
-      "description": "max is the end of the range, inclusive."
+      "description": "Max is the end of the range, inclusive."
      }
     }
    },
    "v1beta1.SupplementalGroupsStrategyOptions": {
     "id": "v1beta1.SupplementalGroupsStrategyOptions",
-    "description": "SupplementalGroupsStrategyOptions defines the strategy type and options used to create the strategy. Deprecated: use SupplementalGroupsStrategyOptions from policy API Group instead.",
+    "description": "SupplementalGroupsStrategyOptions defines the strategy type and options used to create the strategy.",
     "properties": {
      "rule": {
       "type": "string",
-      "description": "rule is the strategy that will dictate what supplemental groups is used in the SecurityContext."
+      "description": "Rule is the strategy that will dictate what supplemental groups is used in the SecurityContext."
      },
      "ranges": {
       "type": "array",
       "items": {
        "$ref": "v1beta1.IDRange"
       },
-      "description": "ranges are the allowed ranges of supplemental groups.  If you would like to force a single supplemental group then supply a single range with the same start and end. Required for MustRunAs."
+      "description": "Ranges are the allowed ranges of supplemental groups.  If you would like to force a single supplemental group then supply a single range with the same start and end."
      }
     }
    },
    "v1beta1.FSGroupStrategyOptions": {
     "id": "v1beta1.FSGroupStrategyOptions",
-    "description": "FSGroupStrategyOptions defines the strategy type and options used to create the strategy. Deprecated: use FSGroupStrategyOptions from policy API Group instead.",
+    "description": "FSGroupStrategyOptions defines the strategy type and options used to create the strategy.",
     "properties": {
      "rule": {
       "type": "string",
-      "description": "rule is the strategy that will dictate what FSGroup is used in the SecurityContext."
+      "description": "Rule is the strategy that will dictate what FSGroup is used in the SecurityContext."
      },
      "ranges": {
       "type": "array",
       "items": {
        "$ref": "v1beta1.IDRange"
       },
-      "description": "ranges are the allowed ranges of fs groups.  If you would like to force a single fs group then supply a single range with the same start and end. Required for MustRunAs."
+      "description": "Ranges are the allowed ranges of fs groups.  If you would like to force a single fs group then supply a single range with the same start and end."
      }
     }
    },
    "v1beta1.AllowedHostPath": {
     "id": "v1beta1.AllowedHostPath",
-    "description": "AllowedHostPath defines the host volume conditions that will be enabled by a policy for pods to use. It requires the path prefix to be defined. Deprecated: use AllowedHostPath from policy API Group instead.",
+    "description": "defines the host volume conditions that will be enabled by a policy for pods to use. It requires the path prefix to be defined.",
     "properties": {
      "pathPrefix": {
       "type": "string",
-      "description": "pathPrefix is the path prefix that the host volume must match. It does not support `*`. Trailing slashes are trimmed when validating the path prefix with a host path.\n\nExamples: `/foo` would allow `/foo`, `/foo/` and `/foo/bar` `/foo` would not allow `/food` or `/etc/foo`"
-     },
-     "readOnly": {
-      "type": "boolean",
-      "description": "when set to true, will allow host volumes matching the pathPrefix only if all volume mounts are readOnly."
+      "description": "is the path prefix that the host volume must match. It does not support `*`. Trailing slashes are trimmed when validating the path prefix with a host path.\n\nExamples: `/foo` would allow `/foo`, `/foo/` and `/foo/bar` `/foo` would not allow `/food` or `/etc/foo`"
      }
     }
    },
    "v1beta1.AllowedFlexVolume": {
     "id": "v1beta1.AllowedFlexVolume",
-    "description": "AllowedFlexVolume represents a single Flexvolume that is allowed to be used. Deprecated: use AllowedFlexVolume from policy API Group instead.",
+    "description": "AllowedFlexVolume represents a single Flexvolume that is allowed to be used.",
     "required": [
      "driver"
     ],
     "properties": {
      "driver": {
       "type": "string",
-      "description": "driver is the name of the Flexvolume driver."
+      "description": "Driver is the name of the Flexvolume driver."
      }
     }
    },

@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"fmt"
 	"io/ioutil"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -30,10 +31,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/sets"
 	kubeadmapi "k8s.io/kubernetes/cmd/kubeadm/app/apis/kubeadm"
-	kubeadmapiv1alpha3 "k8s.io/kubernetes/cmd/kubeadm/app/apis/kubeadm/v1alpha3"
-	utilruntime "k8s.io/kubernetes/cmd/kubeadm/app/util/runtime"
 	"k8s.io/utils/exec"
-	fakeexec "k8s.io/utils/exec/testing"
 )
 
 var (
@@ -186,38 +184,38 @@ func (pfct preflightCheckTest) Check() (warning, errors []error) {
 func TestRunInitMasterChecks(t *testing.T) {
 	var tests = []struct {
 		name     string
-		cfg      *kubeadmapi.InitConfiguration
+		cfg      *kubeadmapi.MasterConfiguration
 		expected bool
 	}{
 		{name: "Test valid advertised address",
-			cfg: &kubeadmapi.InitConfiguration{
+			cfg: &kubeadmapi.MasterConfiguration{
 				API: kubeadmapi.API{AdvertiseAddress: "foo"},
 			},
 			expected: false,
 		},
 		{
 			name: "Test CA file exists if specfied",
-			cfg: &kubeadmapi.InitConfiguration{
-				Etcd: kubeadmapi.Etcd{External: &kubeadmapi.ExternalEtcd{CAFile: "/foo"}},
+			cfg: &kubeadmapi.MasterConfiguration{
+				Etcd: kubeadmapi.Etcd{CAFile: "/foo"},
 			},
 			expected: false,
 		},
 		{
 			name: "Test Cert file exists if specfied",
-			cfg: &kubeadmapi.InitConfiguration{
-				Etcd: kubeadmapi.Etcd{External: &kubeadmapi.ExternalEtcd{CertFile: "/foo"}},
+			cfg: &kubeadmapi.MasterConfiguration{
+				Etcd: kubeadmapi.Etcd{CertFile: "/foo"},
 			},
 			expected: false,
 		},
 		{
 			name: "Test Key file exists if specfied",
-			cfg: &kubeadmapi.InitConfiguration{
-				Etcd: kubeadmapi.Etcd{External: &kubeadmapi.ExternalEtcd{CertFile: "/foo"}},
+			cfg: &kubeadmapi.MasterConfiguration{
+				Etcd: kubeadmapi.Etcd{CertFile: "/foo"},
 			},
 			expected: false,
 		},
 		{
-			cfg: &kubeadmapi.InitConfiguration{
+			cfg: &kubeadmapi.MasterConfiguration{
 				API: kubeadmapi.API{AdvertiseAddress: "2001:1234::1:15"},
 			},
 			expected: false,
@@ -225,7 +223,7 @@ func TestRunInitMasterChecks(t *testing.T) {
 	}
 
 	for _, rt := range tests {
-		actual := RunInitMasterChecks(exec.New(), rt.cfg, sets.NewString())
+		actual := RunInitMasterChecks(exec.New(), rt.cfg, "", sets.NewString())
 		if (actual == nil) != rt.expected {
 			t.Errorf(
 				"failed RunInitMasterChecks:\n\texpected: %t\n\t  actual: %t\n\t error: %v",
@@ -239,21 +237,21 @@ func TestRunInitMasterChecks(t *testing.T) {
 
 func TestRunJoinNodeChecks(t *testing.T) {
 	var tests = []struct {
-		cfg      *kubeadmapi.JoinConfiguration
+		cfg      *kubeadmapi.NodeConfiguration
 		expected bool
 	}{
 		{
-			cfg:      &kubeadmapi.JoinConfiguration{},
+			cfg:      &kubeadmapi.NodeConfiguration{},
 			expected: false,
 		},
 		{
-			cfg: &kubeadmapi.JoinConfiguration{
+			cfg: &kubeadmapi.NodeConfiguration{
 				DiscoveryTokenAPIServers: []string{"192.168.1.15"},
 			},
 			expected: false,
 		},
 		{
-			cfg: &kubeadmapi.JoinConfiguration{
+			cfg: &kubeadmapi.NodeConfiguration{
 				DiscoveryTokenAPIServers: []string{"2001:1234::1:15"},
 			},
 			expected: false,
@@ -261,7 +259,7 @@ func TestRunJoinNodeChecks(t *testing.T) {
 	}
 
 	for _, rt := range tests {
-		actual := RunJoinNodeChecks(exec.New(), rt.cfg, sets.NewString())
+		actual := RunJoinNodeChecks(exec.New(), rt.cfg, "", sets.NewString())
 		if (actual == nil) != rt.expected {
 			t.Errorf(
 				"failed RunJoinNodeChecks:\n\texpected: %t\n\t  actual: %t",
@@ -290,7 +288,17 @@ func TestRunChecks(t *testing.T) {
 		{[]Checker{FileContentCheck{Path: "/", Content: []byte("does not exist")}}, false, ""},
 		{[]Checker{InPathCheck{executable: "foobarbaz", exec: exec.New()}}, true, "\t[WARNING FileExisting-foobarbaz]: foobarbaz not found in system path\n"},
 		{[]Checker{InPathCheck{executable: "foobarbaz", mandatory: true, exec: exec.New()}}, false, ""},
-		{[]Checker{InPathCheck{executable: "foobar", mandatory: false, exec: exec.New(), suggestion: "install foobar"}}, true, "\t[WARNING FileExisting-foobar]: foobar not found in system path\nSuggestion: install foobar\n"},
+		{[]Checker{ExtraArgsCheck{
+			APIServerExtraArgs:         map[string]string{"secure-port": "1234"},
+			ControllerManagerExtraArgs: map[string]string{"use-service-account-credentials": "true"},
+			SchedulerExtraArgs:         map[string]string{"leader-elect": "true"},
+		}}, true, ""},
+		{[]Checker{ExtraArgsCheck{
+			APIServerExtraArgs: map[string]string{"secure-port": "foo"},
+		}}, true, "\t[WARNING ExtraArgs]: kube-apiserver: failed to parse extra argument --secure-port=foo\n"},
+		{[]Checker{ExtraArgsCheck{
+			APIServerExtraArgs: map[string]string{"invalid-argument": "foo"},
+		}}, true, "\t[WARNING ExtraArgs]: kube-apiserver: failed to parse extra argument --invalid-argument=foo\n"},
 	}
 	for _, rt := range tokenTest {
 		buf := new(bytes.Buffer)
@@ -321,7 +329,7 @@ func TestConfigRootCAs(t *testing.T) {
 		t.Errorf("failed configRootCAs:\n\texpected: succeed writing contents to temp CA file %s\n\tactual:%v", f.Name(), err)
 	}
 
-	c := ExternalEtcdVersionCheck{Etcd: kubeadmapi.Etcd{External: &kubeadmapi.ExternalEtcd{CAFile: f.Name()}}}
+	c := ExternalEtcdVersionCheck{Etcd: kubeadmapi.Etcd{CAFile: f.Name()}}
 
 	config, err := c.configRootCAs(nil)
 	if err != nil {
@@ -369,14 +377,10 @@ func TestConfigCertAndKey(t *testing.T) {
 			err,
 		)
 	}
-	c := ExternalEtcdVersionCheck{
-		Etcd: kubeadmapi.Etcd{
-			External: &kubeadmapi.ExternalEtcd{
-				CertFile: certFile.Name(),
-				KeyFile:  keyFile.Name(),
-			},
-		},
-	}
+	c := ExternalEtcdVersionCheck{Etcd: kubeadmapi.Etcd{
+		CertFile: certFile.Name(),
+		KeyFile:  keyFile.Name(),
+	}}
 
 	config, err := c.configCertAndKey(nil)
 	if err != nil {
@@ -499,106 +503,13 @@ func TestHTTPProxyCIDRCheck(t *testing.T) {
 	}
 
 	// Save current content of *_proxy and *_PROXY variables.
-	savedEnv := resetProxyEnv(t)
+	savedEnv := resetProxyEnv()
 	defer restoreEnv(savedEnv)
-
-	for _, rt := range tests {
-		warning, _ := rt.check.Check()
-		if (warning != nil) != rt.expectWarnings {
-			t.Errorf(
-				"failed HTTPProxyCIDRCheck:\n\texpected: %t\n\t  actual: %t (CIDR:%s). Warnings: %v",
-				rt.expectWarnings,
-				(warning != nil),
-				rt.check.CIDR,
-				warning,
-			)
-		}
-	}
-}
-
-func TestHTTPProxyCheck(t *testing.T) {
-	var tests = []struct {
-		name           string
-		check          HTTPProxyCheck
-		expectWarnings bool
-	}{
-		{
-			name: "Loopback address",
-			check: HTTPProxyCheck{
-				Proto: "https",
-				Host:  "127.0.0.1",
-			}, // Loopback addresses never should produce proxy warnings
-			expectWarnings: false,
-		},
-		{
-			name: "IPv4 direct access",
-			check: HTTPProxyCheck{
-				Proto: "https",
-				Host:  "10.96.0.1",
-			}, // Expected to be accessed directly, we set NO_PROXY to 10.0.0.0/8
-			expectWarnings: false,
-		},
-		{
-			name: "IPv4 via proxy",
-			check: HTTPProxyCheck{
-				Proto: "https",
-				Host:  "192.168.0.1",
-			}, // Expected to go via proxy as this range is not listed in NO_PROXY
-			expectWarnings: true,
-		},
-		{
-			name: "IPv6 direct access",
-			check: HTTPProxyCheck{
-				Proto: "https",
-				Host:  "[2001:db8::1:15]",
-			}, // Expected to be accessed directly, part of 2001:db8::/48 in NO_PROXY
-			expectWarnings: false,
-		},
-		{
-			name: "IPv6 via proxy",
-			check: HTTPProxyCheck{
-				Proto: "https",
-				Host:  "[2001:db8:1::1:15]",
-			}, // Expected to go via proxy, range is not in 2001:db8::/48
-			expectWarnings: true,
-		},
-	}
-
-	// Save current content of *_proxy and *_PROXY variables.
-	savedEnv := resetProxyEnv(t)
-	defer restoreEnv(savedEnv)
-
-	for _, rt := range tests {
-		warning, _ := rt.check.Check()
-		if (warning != nil) != rt.expectWarnings {
-			t.Errorf(
-				"%s failed HTTPProxyCheck:\n\texpected: %t\n\t  actual: %t (Host:%s). Warnings: %v",
-				rt.name,
-				rt.expectWarnings,
-				(warning != nil),
-				rt.check.Host,
-				warning,
-			)
-		}
-	}
-}
-
-// resetProxyEnv is helper function that unsets all *_proxy variables
-// and return previously set values as map. This can be used to restore
-// original state of the environment.
-func resetProxyEnv(t *testing.T) map[string]string {
-	savedEnv := make(map[string]string)
-	for _, e := range os.Environ() {
-		pair := strings.Split(e, "=")
-		if strings.HasSuffix(strings.ToLower(pair[0]), "_proxy") {
-			savedEnv[pair[0]] = pair[1]
-			os.Unsetenv(pair[0])
-		}
-	}
 	t.Log("Saved environment: ", savedEnv)
 
 	os.Setenv("HTTP_PROXY", "http://proxy.example.com:3128")
 	os.Setenv("NO_PROXY", "example.com,10.0.0.0/8,2001:db8::/48")
+
 	// Check if we can reliably execute tests:
 	// ProxyFromEnvironment caches the *_proxy environment variables and
 	// if ProxyFromEnvironment already executed before our test with empty
@@ -615,6 +526,33 @@ func resetProxyEnv(t *testing.T) map[string]string {
 		t.Skip("test skipped as ProxyFromEnvironment already initialized in environment without defined HTTP proxy")
 	}
 	t.Log("http.ProxyFromEnvironment is usable, continue executing test")
+
+	for _, rt := range tests {
+		warning, _ := rt.check.Check()
+		if (warning != nil) != rt.expectWarnings {
+			t.Errorf(
+				"failed HTTPProxyCIDRCheck:\n\texpected: %t\n\t  actual: %t (CIDR:%s). Warnings: %v",
+				rt.expectWarnings,
+				(warning != nil),
+				rt.check.CIDR,
+				warning,
+			)
+		}
+	}
+}
+
+// resetProxyEnv is helper function that unsets all *_proxy variables
+// and return previously set values as map. This can be used to restore
+// original state of the environment.
+func resetProxyEnv() map[string]string {
+	savedEnv := make(map[string]string)
+	for _, e := range os.Environ() {
+		pair := strings.Split(e, "=")
+		if strings.HasSuffix(strings.ToLower(pair[0]), "_proxy") {
+			savedEnv[pair[0]] = pair[1]
+			os.Unsetenv(pair[0])
+		}
+	}
 	return savedEnv
 }
 
@@ -627,34 +565,44 @@ func restoreEnv(e map[string]string) {
 }
 
 func TestKubeletVersionCheck(t *testing.T) {
-	cases := []struct {
+	type T struct {
 		kubeletVersion string
 		k8sVersion     string
 		expectErrors   bool
 		expectWarnings bool
-	}{
-		{"v1.11.2", "", false, false},               // check minimally supported version when there is no information about control plane
-		{"v1.8.3", "v1.8.8", true, false},           // too old kubelet (older than kubeadmconstants.MinimumKubeletVersion), should fail.
-		{"v1.10.0", "v1.10.5", false, false},        // kubelet within same major.minor as control plane
-		{"v1.10.5", "v1.10.1", false, false},        // kubelet is newer, but still within same major.minor as control plane
-		{"v1.10.0", "v1.11.1", false, false},        // kubelet is lower than control plane, but newer than minimally supported
-		{"v1.11.0-alpha.1", "v1.10.1", true, false}, // kubelet is newer (development build) than control plane, should fail.
-		{"v1.11.0", "v1.10.5", true, false},         // kubelet is newer (release) than control plane, should fail.
 	}
 
+	cases := []T{
+		{"v1.10.2", "", false, false},              // check minimally supported version when there is no information about control plane
+		{"v1.7.3", "v1.7.8", true, false},          // too old kubelet (older than kubeadmconstants.MinimumKubeletVersion), should fail.
+		{"v1.9.0", "v1.9.5", false, false},         // kubelet within same major.minor as control plane
+		{"v1.9.5", "v1.9.1", false, false},         // kubelet is newer, but still within same major.minor as control plane
+		{"v1.9.0", "v1.10.1", false, false},        // kubelet is lower than control plane, but newer than minimally supported
+		{"v1.10.0-alpha.1", "v1.9.1", true, false}, // kubelet is newer (development build) than control plane, should fail.
+		{"v1.10.0", "v1.9.5", true, false},         // kubelet is newer (release) than control plane, should fail.
+	}
+
+	dir, err := ioutil.TempDir("", "test-kubelet-version-check")
+	if err != nil {
+		t.Errorf("Failed to create directory for testing GetKubeletVersion: %v", err)
+	}
+	defer os.RemoveAll(dir)
+
+	// We don't want to call real kubelet or something else in $PATH
+	oldPATH := os.Getenv("PATH")
+	defer os.Setenv("PATH", oldPATH)
+
+	os.Setenv("PATH", dir)
+
+	kubeletFn := filepath.Join(dir, "kubelet")
 	for _, tc := range cases {
-		fcmd := fakeexec.FakeCmd{
-			CombinedOutputScript: []fakeexec.FakeCombinedOutputAction{
-				func() ([]byte, error) { return []byte("Kubernetes " + tc.kubeletVersion), nil },
-			},
-		}
-		fexec := &fakeexec.FakeExec{
-			CommandScript: []fakeexec.FakeCommandAction{
-				func(cmd string, args ...string) exec.Cmd { return fakeexec.InitFakeCmd(&fcmd, cmd, args...) },
-			},
+
+		content := []byte(fmt.Sprintf("#!/bin/sh\necho 'Kubernetes %s'", tc.kubeletVersion))
+		if err := ioutil.WriteFile(kubeletFn, content, 0755); err != nil {
+			t.Errorf("Error creating test stub file %s: %v", kubeletFn, err)
 		}
 
-		check := KubeletVersionCheck{KubernetesVersion: tc.k8sVersion, exec: fexec}
+		check := KubeletVersionCheck{KubernetesVersion: tc.k8sVersion}
 		warnings, errors := check.Check()
 
 		switch {
@@ -696,57 +644,5 @@ func TestSetHasItemOrAll(t *testing.T) {
 				rt.testString,
 			)
 		}
-	}
-}
-
-func TestImagePullCheck(t *testing.T) {
-	fcmd := fakeexec.FakeCmd{
-		RunScript: []fakeexec.FakeRunAction{
-			func() ([]byte, []byte, error) { return nil, nil, nil }, // Test case 1
-			func() ([]byte, []byte, error) { return nil, nil, nil },
-			func() ([]byte, []byte, error) { return nil, nil, nil },
-			func() ([]byte, []byte, error) { return nil, nil, &fakeexec.FakeExitError{Status: 1} }, // Test case 2
-			func() ([]byte, []byte, error) { return nil, nil, nil },
-			func() ([]byte, []byte, error) { return nil, nil, nil },
-			func() ([]byte, []byte, error) { return nil, nil, nil },
-		},
-	}
-
-	fexec := fakeexec.FakeExec{
-		CommandScript: []fakeexec.FakeCommandAction{
-			func(cmd string, args ...string) exec.Cmd { return fakeexec.InitFakeCmd(&fcmd, cmd, args...) },
-			func(cmd string, args ...string) exec.Cmd { return fakeexec.InitFakeCmd(&fcmd, cmd, args...) },
-			func(cmd string, args ...string) exec.Cmd { return fakeexec.InitFakeCmd(&fcmd, cmd, args...) },
-			func(cmd string, args ...string) exec.Cmd { return fakeexec.InitFakeCmd(&fcmd, cmd, args...) },
-			func(cmd string, args ...string) exec.Cmd { return fakeexec.InitFakeCmd(&fcmd, cmd, args...) },
-			func(cmd string, args ...string) exec.Cmd { return fakeexec.InitFakeCmd(&fcmd, cmd, args...) },
-			func(cmd string, args ...string) exec.Cmd { return fakeexec.InitFakeCmd(&fcmd, cmd, args...) },
-		},
-		LookPathFunc: func(cmd string) (string, error) { return "/usr/bin/docker", nil },
-	}
-
-	containerRuntime, err := utilruntime.NewContainerRuntime(&fexec, kubeadmapiv1alpha3.DefaultCRISocket)
-	if err != nil {
-		t.Errorf("unexpected NewContainerRuntime error: %v", err)
-	}
-
-	check := ImagePullCheck{
-		runtime:   containerRuntime,
-		imageList: []string{"img1", "img2", "img3"},
-	}
-	warnings, errors := check.Check()
-	if len(warnings) != 0 {
-		t.Fatalf("did not expect any warnings but got %q", warnings)
-	}
-	if len(errors) != 0 {
-		t.Fatalf("expected 1 errors but got %d: %q", len(errors), errors)
-	}
-
-	warnings, errors = check.Check()
-	if len(warnings) != 0 {
-		t.Fatalf("did not expect any warnings but got %q", warnings)
-	}
-	if len(errors) != 1 {
-		t.Fatalf("expected 1 errors but got %d: %q", len(errors), errors)
 	}
 }

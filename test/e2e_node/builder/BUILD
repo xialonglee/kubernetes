@@ -9,10 +9,7 @@ go_library(
     name = "go_default_library",
     srcs = ["build.go"],
     importpath = "k8s.io/kubernetes/test/e2e_node/builder",
-    deps = [
-        "//test/utils:go_default_library",
-        "//vendor/github.com/golang/glog:go_default_library",
-    ],
+    deps = ["//vendor/github.com/golang/glog:go_default_library"],
 )
 
 filegroup(

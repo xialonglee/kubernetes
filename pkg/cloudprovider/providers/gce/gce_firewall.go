@@ -18,9 +18,6 @@ package gce
 
 import (
 	compute "google.golang.org/api/compute/v1"
-
-	"k8s.io/kubernetes/pkg/cloudprovider/providers/gce/cloud"
-	"k8s.io/kubernetes/pkg/cloudprovider/providers/gce/cloud/meta"
 )
 
 func newFirewallMetricContext(request string) *metricContext {
@@ -29,37 +26,39 @@ func newFirewallMetricContext(request string) *metricContext {
 
 // GetFirewall returns the Firewall by name.
 func (gce *GCECloud) GetFirewall(name string) (*compute.Firewall, error) {
-	ctx, cancel := cloud.ContextWithCallTimeout()
-	defer cancel()
-
 	mc := newFirewallMetricContext("get")
-	v, err := gce.c.Firewalls().Get(ctx, meta.GlobalKey(name))
+	v, err := gce.service.Firewalls.Get(gce.NetworkProjectID(), name).Do()
 	return v, mc.Observe(err)
 }
 
 // CreateFirewall creates the passed firewall
 func (gce *GCECloud) CreateFirewall(f *compute.Firewall) error {
-	ctx, cancel := cloud.ContextWithCallTimeout()
-	defer cancel()
-
 	mc := newFirewallMetricContext("create")
-	return mc.Observe(gce.c.Firewalls().Insert(ctx, meta.GlobalKey(f.Name), f))
+	op, err := gce.service.Firewalls.Insert(gce.NetworkProjectID(), f).Do()
+	if err != nil {
+		return mc.Observe(err)
+	}
+
+	return gce.waitForGlobalOpInProject(op, gce.NetworkProjectID(), mc)
 }
 
 // DeleteFirewall deletes the given firewall rule.
 func (gce *GCECloud) DeleteFirewall(name string) error {
-	ctx, cancel := cloud.ContextWithCallTimeout()
-	defer cancel()
-
 	mc := newFirewallMetricContext("delete")
-	return mc.Observe(gce.c.Firewalls().Delete(ctx, meta.GlobalKey(name)))
+	op, err := gce.service.Firewalls.Delete(gce.NetworkProjectID(), name).Do()
+	if err != nil {
+		return mc.Observe(err)
+	}
+	return gce.waitForGlobalOpInProject(op, gce.NetworkProjectID(), mc)
 }
 
 // UpdateFirewall applies the given firewall as an update to an existing service.
 func (gce *GCECloud) UpdateFirewall(f *compute.Firewall) error {
-	ctx, cancel := cloud.ContextWithCallTimeout()
-	defer cancel()
-
 	mc := newFirewallMetricContext("update")
-	return mc.Observe(gce.c.Firewalls().Update(ctx, meta.GlobalKey(f.Name), f))
+	op, err := gce.service.Firewalls.Update(gce.NetworkProjectID(), f.Name, f).Do()
+	if err != nil {
+		return mc.Observe(err)
+	}
+
+	return gce.waitForGlobalOpInProject(op, gce.NetworkProjectID(), mc)
 }

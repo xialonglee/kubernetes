@@ -5,14 +5,17 @@ go_library(
     srcs = [
         "jwttoken.go",
         "oidcclient.go",
-        "oidcclient_sspi.go",
         "oidcclient_sspi_unsupported.go",
-    ],
-    importmap = "k8s.io/kubernetes/vendor/github.com/vmware/photon-controller-go-sdk/photon/lightwave",
+    ] + select({
+        "@io_bazel_rules_go//go/platform:windows_amd64": [
+            "oidcclient_sspi.go",
+        ],
+        "//conditions:default": [],
+    }),
     importpath = "github.com/vmware/photon-controller-go-sdk/photon/lightwave",
     visibility = ["//visibility:public"],
     deps = select({
-        "@io_bazel_rules_go//go/platform:windows": [
+        "@io_bazel_rules_go//go/platform:windows_amd64": [
             "//vendor/github.com/vmware/photon-controller-go-sdk/SSPI:go_default_library",
         ],
         "//conditions:default": [],

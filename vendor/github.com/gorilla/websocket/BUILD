@@ -10,7 +10,6 @@ go_library(
         "server.go",
         "util.go",
     ],
-    importmap = "k8s.io/kubernetes/vendor/github.com/gorilla/websocket",
     importpath = "github.com/gorilla/websocket",
     visibility = ["//visibility:public"],
 )

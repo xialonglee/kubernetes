@@ -21,23 +21,18 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/coreos/etcd/clientv3"
-	"github.com/coreos/etcd/pkg/transport"
 	"k8s.io/apimachinery/pkg/runtime"
 	kubeadmapi "k8s.io/kubernetes/cmd/kubeadm/app/apis/kubeadm"
-	kubeadmscheme "k8s.io/kubernetes/cmd/kubeadm/app/apis/kubeadm/scheme"
-	kubeadmapiv1alpha3 "k8s.io/kubernetes/cmd/kubeadm/app/apis/kubeadm/v1alpha3"
+	kubeadmapiext "k8s.io/kubernetes/cmd/kubeadm/app/apis/kubeadm/v1alpha1"
 	"k8s.io/kubernetes/cmd/kubeadm/app/constants"
-	certsphase "k8s.io/kubernetes/cmd/kubeadm/app/phases/certs"
-	controlplanephase "k8s.io/kubernetes/cmd/kubeadm/app/phases/controlplane"
+	"k8s.io/kubernetes/cmd/kubeadm/app/phases/controlplane"
 	etcdphase "k8s.io/kubernetes/cmd/kubeadm/app/phases/etcd"
 	"k8s.io/kubernetes/cmd/kubeadm/app/util/apiclient"
-	etcdutil "k8s.io/kubernetes/cmd/kubeadm/app/util/etcd"
+	"k8s.io/kubernetes/pkg/api/legacyscheme"
 )
 
 const (
@@ -46,29 +41,33 @@ const (
 	waitForPodsWithLabel = "wait-for-pods-with-label"
 
 	testConfiguration = `
-apiVersion: kubeadm.k8s.io/v1alpha3
-kind: InitConfiguration
 api:
   advertiseAddress: 1.2.3.4
   bindPort: 6443
 apiServerCertSANs: null
 apiServerExtraArgs: null
-certificatesDir: %s
+authorizationModes:
+- Node
+- RBAC
+certificatesDir: /etc/kubernetes/pki
+cloudProvider: ""
 controllerManagerExtraArgs: null
 etcd:
-  local:
-    dataDir: %s
-    image: ""
+  caFile: ""
+  certFile: ""
+  dataDir: /var/lib/etcd
+  endpoints: null
+  extraArgs: null
+  image: ""
+  keyFile: ""
 featureFlags: null
-imageRepository: k8s.gcr.io
+imageRepository: gcr.io/google_containers
 kubernetesVersion: %s
 networking:
   dnsDomain: cluster.local
   podSubnet: ""
   serviceSubnet: 10.96.0.0/12
-nodeRegistration:
-  name: foo
-  criSocket: ""
+nodeName: thegopher
 schedulerExtraArgs: null
 token: ce3aa5.5ec8455bb76b379f
 tokenTTL: 24h
@@ -115,8 +114,8 @@ func (w *fakeWaiter) WaitForStaticPodSingleHash(_ string, _ string) (string, err
 	return "", w.errsToReturn[waitForHashes]
 }
 
-// WaitForStaticPodHashChange returns an error if set from errsToReturn
-func (w *fakeWaiter) WaitForStaticPodHashChange(_, _, _ string) error {
+// WaitForStaticPodControlPlaneHashChange returns an error if set from errsToReturn
+func (w *fakeWaiter) WaitForStaticPodControlPlaneHashChange(_, _, _ string) error {
 	return w.errsToReturn[waitForHashChange]
 }
 
@@ -126,7 +125,6 @@ func (w *fakeWaiter) WaitForHealthyKubelet(_ time.Duration, _ string) error {
 }
 
 type fakeStaticPodPathManager struct {
-	kubernetesDir     string
 	realManifestDir   string
 	tempManifestDir   string
 	backupManifestDir string
@@ -135,36 +133,29 @@ type fakeStaticPodPathManager struct {
 }
 
 func NewFakeStaticPodPathManager(moveFileFunc func(string, string) error) (StaticPodPathManager, error) {
-	kubernetesDir, err := ioutil.TempDir("", "kubeadm-pathmanager-")
+	realManifestsDir, err := ioutil.TempDir("", "kubeadm-upgraded-manifests")
 	if err != nil {
 		return nil, fmt.Errorf("couldn't create a temporary directory for the upgrade: %v", err)
 	}
 
-	realManifestDir := filepath.Join(kubernetesDir, constants.ManifestsSubDirName)
-	if err := os.Mkdir(realManifestDir, 0700); err != nil {
-		return nil, fmt.Errorf("couldn't create a realManifestDir for the upgrade: %v", err)
+	upgradedManifestsDir, err := ioutil.TempDir("", "kubeadm-upgraded-manifests")
+	if err != nil {
+		return nil, fmt.Errorf("couldn't create a temporary directory for the upgrade: %v", err)
 	}
 
-	upgradedManifestDir := filepath.Join(kubernetesDir, "upgraded-manifests")
-	if err := os.Mkdir(upgradedManifestDir, 0700); err != nil {
-		return nil, fmt.Errorf("couldn't create a upgradedManifestDir for the upgrade: %v", err)
+	backupManifestsDir, err := ioutil.TempDir("", "kubeadm-backup-manifests")
+	if err != nil {
+		return nil, fmt.Errorf("couldn't create a temporary directory for the upgrade: %v", err)
 	}
-
-	backupManifestDir := filepath.Join(kubernetesDir, "backup-manifests")
-	if err := os.Mkdir(backupManifestDir, 0700); err != nil {
-		return nil, fmt.Errorf("couldn't create a backupManifestDir for the upgrade: %v", err)
-	}
-
-	backupEtcdDir := filepath.Join(kubernetesDir, "kubeadm-backup-etcd")
-	if err := os.Mkdir(backupEtcdDir, 0700); err != nil {
+	backupEtcdDir, err := ioutil.TempDir("", "kubeadm-backup-etcd")
+	if err != nil {
 		return nil, err
 	}
 
 	return &fakeStaticPodPathManager{
-		kubernetesDir:     kubernetesDir,
-		realManifestDir:   realManifestDir,
-		tempManifestDir:   upgradedManifestDir,
-		backupManifestDir: backupManifestDir,
+		realManifestDir:   realManifestsDir,
+		tempManifestDir:   upgradedManifestsDir,
+		backupManifestDir: backupManifestsDir,
 		backupEtcdDir:     backupEtcdDir,
 		MoveFileFunc:      moveFileFunc,
 	}, nil
@@ -172,10 +163,6 @@ func NewFakeStaticPodPathManager(moveFileFunc func(string, string) error) (Stati
 
 func (spm *fakeStaticPodPathManager) MoveFile(oldPath, newPath string) error {
 	return spm.MoveFileFunc(oldPath, newPath)
-}
-
-func (spm *fakeStaticPodPathManager) KubernetesDir() string {
-	return spm.kubernetesDir
 }
 
 func (spm *fakeStaticPodPathManager) RealManifestPath(component string) string {
@@ -203,95 +190,14 @@ func (spm *fakeStaticPodPathManager) BackupEtcdDir() string {
 	return spm.backupEtcdDir
 }
 
-func (spm *fakeStaticPodPathManager) CleanupDirs() error {
-	if err := os.RemoveAll(spm.TempManifestDir()); err != nil {
-		return err
-	}
-	if err := os.RemoveAll(spm.BackupManifestDir()); err != nil {
-		return err
-	}
-	return os.RemoveAll(spm.BackupEtcdDir())
-}
-
-type fakeTLSEtcdClient struct{ TLS bool }
-
-func (c fakeTLSEtcdClient) HasTLS() bool {
-	return c.TLS
-}
-
-func (c fakeTLSEtcdClient) ClusterAvailable() (bool, error) { return true, nil }
-
-func (c fakeTLSEtcdClient) WaitForClusterAvailable(delay time.Duration, retries int, retryInterval time.Duration) (bool, error) {
-	return true, nil
-}
-
-func (c fakeTLSEtcdClient) GetClusterStatus() (map[string]*clientv3.StatusResponse, error) {
-	return map[string]*clientv3.StatusResponse{
-		"foo": {
-			Version: "3.1.12",
-		}}, nil
-}
-
-func (c fakeTLSEtcdClient) GetClusterVersions() (map[string]string, error) {
-	return map[string]string{
-		"foo": "3.1.12",
-	}, nil
-}
-
-func (c fakeTLSEtcdClient) GetVersion() (string, error) {
-	return "3.1.12", nil
-}
-
-type fakePodManifestEtcdClient struct{ ManifestDir, CertificatesDir string }
-
-func (c fakePodManifestEtcdClient) HasTLS() bool {
-	hasTLS, _ := etcdutil.PodManifestsHaveTLS(c.ManifestDir)
-	return hasTLS
-}
-
-func (c fakePodManifestEtcdClient) ClusterAvailable() (bool, error) { return true, nil }
-
-func (c fakePodManifestEtcdClient) WaitForClusterAvailable(delay time.Duration, retries int, retryInterval time.Duration) (bool, error) {
-	return true, nil
-}
-
-func (c fakePodManifestEtcdClient) GetClusterStatus() (map[string]*clientv3.StatusResponse, error) {
-	// Make sure the certificates generated from the upgrade are readable from disk
-	tlsInfo := transport.TLSInfo{
-		CertFile:      filepath.Join(c.CertificatesDir, constants.EtcdCACertName),
-		KeyFile:       filepath.Join(c.CertificatesDir, constants.EtcdHealthcheckClientCertName),
-		TrustedCAFile: filepath.Join(c.CertificatesDir, constants.EtcdHealthcheckClientKeyName),
-	}
-	_, err := tlsInfo.ClientConfig()
-	if err != nil {
-		return nil, err
-	}
-
-	return map[string]*clientv3.StatusResponse{
-		"foo": {Version: "3.1.12"},
-	}, nil
-}
-
-func (c fakePodManifestEtcdClient) GetClusterVersions() (map[string]string, error) {
-	return map[string]string{
-		"foo": "3.1.12",
-	}, nil
-}
-
-func (c fakePodManifestEtcdClient) GetVersion() (string, error) {
-	return "3.1.12", nil
-}
-
 func TestStaticPodControlPlane(t *testing.T) {
 	tests := []struct {
-		description          string
 		waitErrsToReturn     map[string]error
 		moveFileFunc         func(string, string) error
 		expectedErr          bool
 		manifestShouldChange bool
 	}{
-		{
-			description: "error-free case should succeed",
+		{ // error-free case should succeed
 			waitErrsToReturn: map[string]error{
 				waitForHashes:        nil,
 				waitForHashChange:    nil,
@@ -303,8 +209,7 @@ func TestStaticPodControlPlane(t *testing.T) {
 			expectedErr:          false,
 			manifestShouldChange: true,
 		},
-		{
-			description: "any wait error should result in a rollback and an abort",
+		{ // any wait error should result in a rollback and an abort
 			waitErrsToReturn: map[string]error{
 				waitForHashes:        fmt.Errorf("boo! failed"),
 				waitForHashChange:    nil,
@@ -316,8 +221,7 @@ func TestStaticPodControlPlane(t *testing.T) {
 			expectedErr:          true,
 			manifestShouldChange: false,
 		},
-		{
-			description: "any wait error should result in a rollback and an abort",
+		{ // any wait error should result in a rollback and an abort
 			waitErrsToReturn: map[string]error{
 				waitForHashes:        nil,
 				waitForHashChange:    fmt.Errorf("boo! failed"),
@@ -329,8 +233,7 @@ func TestStaticPodControlPlane(t *testing.T) {
 			expectedErr:          true,
 			manifestShouldChange: false,
 		},
-		{
-			description: "any wait error should result in a rollback and an abort",
+		{ // any wait error should result in a rollback and an abort
 			waitErrsToReturn: map[string]error{
 				waitForHashes:        nil,
 				waitForHashChange:    nil,
@@ -342,8 +245,7 @@ func TestStaticPodControlPlane(t *testing.T) {
 			expectedErr:          true,
 			manifestShouldChange: false,
 		},
-		{
-			description: "any path-moving error should result in a rollback and an abort",
+		{ // any path-moving error should result in a rollback and an abort
 			waitErrsToReturn: map[string]error{
 				waitForHashes:        nil,
 				waitForHashChange:    nil,
@@ -359,8 +261,7 @@ func TestStaticPodControlPlane(t *testing.T) {
 			expectedErr:          true,
 			manifestShouldChange: false,
 		},
-		{
-			description: "any path-moving error should result in a rollback and an abort",
+		{ // any path-moving error should result in a rollback and an abort
 			waitErrsToReturn: map[string]error{
 				waitForHashes:        nil,
 				waitForHashChange:    nil,
@@ -376,8 +277,7 @@ func TestStaticPodControlPlane(t *testing.T) {
 			expectedErr:          true,
 			manifestShouldChange: false,
 		},
-		{
-			description: "any path-moving error should result in a rollback and an abort; even though this is the last component (kube-apiserver and kube-controller-manager healthy)",
+		{ // any path-moving error should result in a rollback and an abort; even though this is the last component (kube-apiserver and kube-controller-manager healthy)
 			waitErrsToReturn: map[string]error{
 				waitForHashes:        nil,
 				waitForHashChange:    nil,
@@ -401,49 +301,16 @@ func TestStaticPodControlPlane(t *testing.T) {
 		if err != nil {
 			t.Fatalf("couldn't run NewFakeStaticPodPathManager: %v", err)
 		}
-		defer os.RemoveAll(pathMgr.(*fakeStaticPodPathManager).KubernetesDir())
-		constants.KubernetesDir = pathMgr.(*fakeStaticPodPathManager).KubernetesDir()
+		defer os.RemoveAll(pathMgr.RealManifestDir())
+		defer os.RemoveAll(pathMgr.TempManifestDir())
+		defer os.RemoveAll(pathMgr.BackupManifestDir())
 
-		tempCertsDir, err := ioutil.TempDir("", "kubeadm-certs")
-		if err != nil {
-			t.Fatalf("couldn't create temporary certificates directory: %v", err)
-		}
-		defer os.RemoveAll(tempCertsDir)
-		tmpEtcdDataDir, err := ioutil.TempDir("", "kubeadm-etcd-data")
-		if err != nil {
-			t.Fatalf("couldn't create temporary etcd data directory: %v", err)
-		}
-		defer os.RemoveAll(tmpEtcdDataDir)
-
-		oldcfg, err := getConfig("v1.9.0", tempCertsDir, tmpEtcdDataDir)
+		oldcfg, err := getConfig("v1.7.0")
 		if err != nil {
 			t.Fatalf("couldn't create config: %v", err)
 		}
-
-		// Initialize PKI minus any etcd certificates to simulate etcd PKI upgrade
-		certActions := []func(cfg *kubeadmapi.InitConfiguration) error{
-			certsphase.CreateCACertAndKeyFiles,
-			certsphase.CreateAPIServerCertAndKeyFiles,
-			certsphase.CreateAPIServerKubeletClientCertAndKeyFiles,
-			// certsphase.CreateEtcdCACertAndKeyFiles,
-			// certsphase.CreateEtcdServerCertAndKeyFiles,
-			// certsphase.CreateEtcdPeerCertAndKeyFiles,
-			// certsphase.CreateEtcdHealthcheckClientCertAndKeyFiles,
-			// certsphase.CreateAPIServerEtcdClientCertAndKeyFiles,
-			certsphase.CreateServiceAccountKeyAndPublicKeyFiles,
-			certsphase.CreateFrontProxyCACertAndKeyFiles,
-			certsphase.CreateFrontProxyClientCertAndKeyFiles,
-		}
-		for _, action := range certActions {
-			err := action(oldcfg)
-			if err != nil {
-				t.Fatalf("couldn't initialize pre-upgrade certificate: %v", err)
-			}
-		}
-		fmt.Printf("Wrote certs to %s\n", oldcfg.CertificatesDir)
-
 		// Initialize the directory with v1.7 manifests; should then be upgraded to v1.8 using the method
-		err = controlplanephase.CreateInitStaticPodManifestFiles(pathMgr.RealManifestDir(), oldcfg)
+		err = controlplane.CreateInitStaticPodManifestFiles(pathMgr.RealManifestDir(), oldcfg)
 		if err != nil {
 			t.Fatalf("couldn't run CreateInitStaticPodManifestFiles: %v", err)
 		}
@@ -457,31 +324,17 @@ func TestStaticPodControlPlane(t *testing.T) {
 			t.Fatalf("couldn't read temp file: %v", err)
 		}
 
-		newcfg, err := getConfig("v1.10.0", tempCertsDir, tmpEtcdDataDir)
+		newcfg, err := getConfig("v1.8.0")
 		if err != nil {
 			t.Fatalf("couldn't create config: %v", err)
 		}
 
-		actualErr := StaticPodControlPlane(
-			waiter,
-			pathMgr,
-			newcfg,
-			true,
-			fakeTLSEtcdClient{
-				TLS: false,
-			},
-			fakePodManifestEtcdClient{
-				ManifestDir:     pathMgr.RealManifestDir(),
-				CertificatesDir: newcfg.CertificatesDir,
-			},
-		)
+		actualErr := StaticPodControlPlane(waiter, pathMgr, newcfg, false)
 		if (actualErr != nil) != rt.expectedErr {
 			t.Errorf(
-				"failed UpgradeStaticPodControlPlane\n%s\n\texpected error: %t\n\tgot: %t\n\tactual error: %v",
-				rt.description,
+				"failed UpgradeStaticPodControlPlane\n\texpected error: %t\n\tgot: %t",
 				rt.expectedErr,
 				(actualErr != nil),
-				actualErr,
 			)
 		}
 
@@ -492,13 +345,12 @@ func TestStaticPodControlPlane(t *testing.T) {
 
 		if (oldHash != newHash) != rt.manifestShouldChange {
 			t.Errorf(
-				"failed StaticPodControlPlane\n%s\n\texpected manifest change: %t\n\tgot: %t",
-				rt.description,
+				"failed StaticPodControlPlane\n\texpected manifest change: %t\n\tgot: %t",
 				rt.manifestShouldChange,
 				(oldHash != newHash),
 			)
 		}
-		return
+
 	}
 }
 
@@ -513,91 +365,12 @@ func getAPIServerHash(dir string) (string, error) {
 	return fmt.Sprintf("%x", sha256.Sum256(fileBytes)), nil
 }
 
-// TODO: Make this test function use the rest of the "official" API machinery helper funcs we have inside of kubeadm
-func getConfig(version, certsDir, etcdDataDir string) (*kubeadmapi.InitConfiguration, error) {
-	externalcfg := &kubeadmapiv1alpha3.InitConfiguration{}
-	internalcfg := &kubeadmapi.InitConfiguration{}
-	if err := runtime.DecodeInto(kubeadmscheme.Codecs.UniversalDecoder(), []byte(fmt.Sprintf(testConfiguration, certsDir, etcdDataDir, version)), externalcfg); err != nil {
+func getConfig(version string) (*kubeadmapi.MasterConfiguration, error) {
+	externalcfg := &kubeadmapiext.MasterConfiguration{}
+	internalcfg := &kubeadmapi.MasterConfiguration{}
+	if err := runtime.DecodeInto(legacyscheme.Codecs.UniversalDecoder(), []byte(fmt.Sprintf(testConfiguration, version)), externalcfg); err != nil {
 		return nil, fmt.Errorf("unable to decode config: %v", err)
 	}
-	kubeadmscheme.Scheme.Convert(externalcfg, internalcfg, nil)
+	legacyscheme.Scheme.Convert(externalcfg, internalcfg, nil)
 	return internalcfg, nil
-}
-
-func getTempDir(t *testing.T, name string) (string, func()) {
-	dir, err := ioutil.TempDir(os.TempDir(), name)
-	if err != nil {
-		t.Fatalf("couldn't make temporary directory: %v", err)
-	}
-
-	return dir, func() {
-		os.RemoveAll(dir)
-	}
-}
-
-func TestCleanupDirs(t *testing.T) {
-	tests := []struct {
-		name                   string
-		keepManifest, keepEtcd bool
-	}{
-		{
-			name:         "save manifest backup",
-			keepManifest: true,
-		},
-		{
-			name:         "save both etcd and manifest",
-			keepManifest: true,
-			keepEtcd:     true,
-		},
-		{
-			name: "save nothing",
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			realManifestDir, cleanup := getTempDir(t, "realManifestDir")
-			defer cleanup()
-
-			tempManifestDir, cleanup := getTempDir(t, "tempManifestDir")
-			defer cleanup()
-
-			backupManifestDir, cleanup := getTempDir(t, "backupManifestDir")
-			defer cleanup()
-
-			backupEtcdDir, cleanup := getTempDir(t, "backupEtcdDir")
-			defer cleanup()
-
-			mgr := NewKubeStaticPodPathManager(realManifestDir, tempManifestDir, backupManifestDir, backupEtcdDir, test.keepManifest, test.keepEtcd)
-			err := mgr.CleanupDirs()
-			if err != nil {
-				t.Errorf("unexpected error cleaning up: %v", err)
-			}
-
-			if _, err := os.Stat(tempManifestDir); !os.IsNotExist(err) {
-				t.Errorf("%q should not have existed", tempManifestDir)
-			}
-			_, err = os.Stat(backupManifestDir)
-			if test.keepManifest {
-				if err != nil {
-					t.Errorf("unexpected error getting backup manifest dir")
-				}
-			} else {
-				if !os.IsNotExist(err) {
-					t.Error("expected backup manifest to not exist")
-				}
-			}
-
-			_, err = os.Stat(backupEtcdDir)
-			if test.keepEtcd {
-				if err != nil {
-					t.Errorf("unexpected error getting backup etcd dir")
-				}
-			} else {
-				if !os.IsNotExist(err) {
-					t.Error("expected backup etcd dir to not exist")
-				}
-			}
-		})
-	}
 }

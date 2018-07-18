@@ -23,9 +23,10 @@ import (
 	"os"
 	"testing"
 
-	apps "k8s.io/api/apps/v1"
+	apps "k8s.io/api/apps/v1beta2"
 	"k8s.io/kubernetes/cmd/kubeadm/app/constants"
 	"k8s.io/kubernetes/cmd/kubeadm/app/util"
+	volumeutil "k8s.io/kubernetes/pkg/volume/util"
 )
 
 const (
@@ -65,7 +66,7 @@ spec:
     - --proxy-client-key-file=/etc/kubernetes/pki/front-proxy-client.key
     - --authorization-mode=Node,RBAC
     - --etcd-servers=http://127.0.0.1:2379
-    image: k8s.gcr.io/kube-apiserver-amd64:v1.7.4
+    image: gcr.io/google_containers/kube-apiserver-amd64:v1.7.4
     livenessProbe:
       failureThreshold: 8
       httpGet:
@@ -103,7 +104,7 @@ spec:
 status: {}
 `
 
-	testAPIServerDaemonSet = `apiVersion: apps/v1
+	testAPIServerDaemonSet = `apiVersion: apps/v1beta2
 kind: DaemonSet
 metadata:
   creationTimestamp: null
@@ -133,7 +134,7 @@ spec:
         - --service-cluster-ip-range=10.96.0.0/12
         - --tls-cert-file=/etc/kubernetes/pki/apiserver.crt
         - --kubelet-client-certificate=/etc/kubernetes/pki/apiserver-kubelet-client.crt
-        - --advertise-address=$(HOST_IP)
+        - --advertise-address=192.168.1.115
         - --requestheader-client-ca-file=/etc/kubernetes/pki/front-proxy-ca.crt
         - --insecure-port=0
         - --experimental-bootstrap-token-auth=true
@@ -147,12 +148,7 @@ spec:
         - --proxy-client-key-file=/etc/kubernetes/pki/front-proxy-client.key
         - --authorization-mode=Node,RBAC
         - --etcd-servers=http://127.0.0.1:2379
-        env:
-        - name: HOST_IP
-          valueFrom:
-            fieldRef:
-              fieldPath: status.hostIP
-        image: k8s.gcr.io/kube-apiserver-amd64:v1.7.4
+        image: gcr.io/google_containers/kube-apiserver-amd64:v1.7.4
         livenessProbe:
           failureThreshold: 8
           httpGet:
@@ -224,7 +220,7 @@ spec:
     - --cluster-signing-key-file=/etc/kubernetes/pki/ca.key
     - --address=127.0.0.1
     - --use-service-account-credentials=true
-    image: k8s.gcr.io/kube-controller-manager-amd64:v1.7.4
+    image: gcr.io/google_containers/kube-controller-manager-amd64:v1.7.4
     livenessProbe:
       failureThreshold: 8
       httpGet:
@@ -269,7 +265,7 @@ spec:
 status: {}
 `
 
-	testControllerManagerDaemonSet = `apiVersion: apps/v1
+	testControllerManagerDaemonSet = `apiVersion: apps/v1beta2
 kind: DaemonSet
 metadata:
   creationTimestamp: null
@@ -299,7 +295,7 @@ spec:
         - --cluster-signing-key-file=/etc/kubernetes/pki/ca.key
         - --address=127.0.0.1
         - --use-service-account-credentials=true
-        image: k8s.gcr.io/kube-controller-manager-amd64:v1.7.4
+        image: gcr.io/google_containers/kube-controller-manager-amd64:v1.7.4
         livenessProbe:
           failureThreshold: 8
           httpGet:
@@ -372,7 +368,7 @@ spec:
     - --leader-elect=true
     - --kubeconfig=/etc/kubernetes/scheduler.conf
     - --address=127.0.0.1
-    image: k8s.gcr.io/kube-scheduler-amd64:v1.7.4
+    image: gcr.io/google_containers/kube-scheduler-amd64:v1.7.4
     livenessProbe:
       failureThreshold: 8
       httpGet:
@@ -399,7 +395,7 @@ spec:
 status: {}
 `
 
-	testSchedulerDaemonSet = `apiVersion: apps/v1
+	testSchedulerDaemonSet = `apiVersion: apps/v1beta2
 kind: DaemonSet
 metadata:
   creationTimestamp: null
@@ -423,7 +419,7 @@ spec:
         - --leader-elect=true
         - --kubeconfig=/etc/kubernetes/scheduler.conf
         - --address=127.0.0.1
-        image: k8s.gcr.io/kube-scheduler-amd64:v1.7.4
+        image: gcr.io/google_containers/kube-scheduler-amd64:v1.7.4
         livenessProbe:
           failureThreshold: 8
           httpGet:
@@ -493,10 +489,11 @@ func TestBuildDaemonSet(t *testing.T) {
 		}
 		defer os.Remove(tempFile)
 
-		podSpec, err := loadPodSpecFromFile(tempFile)
+		pod, err := volumeutil.LoadPodFromFile(tempFile)
 		if err != nil {
-			t.Fatalf("couldn't load the specified Pod Spec")
+			t.Fatalf("couldn't load the specified Pod")
 		}
+		podSpec := &pod.Spec
 
 		ds := BuildDaemonSet(rt.component, podSpec, GetDefaultMutators())
 		dsBytes, err := util.MarshalToYaml(ds, apps.SchemeGroupVersion)
@@ -516,11 +513,6 @@ func TestLoadPodSpecFromFile(t *testing.T) {
 		expectError bool
 	}{
 		{
-			// No content
-			content:     "",
-			expectError: true,
-		},
-		{
 			// Good YAML
 			content: `
 apiVersion: v1
@@ -529,7 +521,7 @@ metadata:
   name: testpod
 spec:
   containers:
-    - image: k8s.gcr.io/busybox
+    - image: gcr.io/google_containers/busybox
 `,
 			expectError: false,
 		},
@@ -545,7 +537,7 @@ spec:
   "spec": {
     "containers": [
       {
-        "image": "k8s.gcr.io/busybox"
+        "image": "gcr.io/google_containers/busybox"
       }
     ]
   }
@@ -560,7 +552,7 @@ kind: Pod
 metadata:
   name: testpod
 spec:
-  - image: k8s.gcr.io/busybox
+  - image: gcr.io/google_containers/busybox
 `,
 			expectError: true,
 		},
@@ -573,15 +565,10 @@ spec:
 		}
 		defer os.Remove(tempFile)
 
-		_, err = loadPodSpecFromFile(tempFile)
+		_, err = volumeutil.LoadPodFromFile(tempFile)
 		if (err != nil) != rt.expectError {
 			t.Errorf("failed TestLoadPodSpecFromFile:\nexpected error:\n%t\nsaw:\n%v", rt.expectError, err)
 		}
-	}
-
-	_, err := loadPodSpecFromFile("")
-	if err == nil {
-		t.Error("unexpected success: loadPodSpecFromFile should return error when no file is given")
 	}
 }
 

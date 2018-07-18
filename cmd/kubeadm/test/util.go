@@ -42,10 +42,10 @@ func SetupTempDir(t *testing.T) string {
 	return tmpdir
 }
 
-// SetupInitConfigurationFile is a utility function for kubeadm testing that writes a master configuration file
+// SetupMasterConfigurationFile is a utility function for kubeadm testing that writes a master configuration file
 // into /config subfolder of a given temporary directory.
-// The function returns the path of the created master configuration file.
-func SetupInitConfigurationFile(t *testing.T, tmpdir string, cfg *kubeadmapi.InitConfiguration) string {
+// The funtion returns the path of the created master configuration file.
+func SetupMasterConfigurationFile(t *testing.T, tmpdir string, cfg *kubeadmapi.MasterConfiguration) string {
 
 	cfgPath := filepath.Join(tmpdir, "config/masterconfig.yaml")
 	if err := os.MkdirAll(filepath.Dir(cfgPath), os.FileMode(0755)); err != nil {
@@ -53,15 +53,13 @@ func SetupInitConfigurationFile(t *testing.T, tmpdir string, cfg *kubeadmapi.Ini
 	}
 
 	cfgTemplate := template.Must(template.New("init").Parse(dedent.Dedent(`
-		apiVersion: kubeadm.k8s.io/v1alpha3
-		kind: InitConfiguration
+		apiVersion: kubeadm.k8s.io/v1alpha1
+		kind: MasterConfiguration
 		certificatesDir: {{.CertificatesDir}}
 		api:
-		  advertiseAddress: {{.API.AdvertiseAddress}}
-		  bindPort: {{.API.BindPort}}
-		nodeRegistration:
-		  name: {{.NodeRegistration.Name}}
-		kubernetesVersion: v1.10.0
+		   advertiseAddress: {{.API.AdvertiseAddress}}
+		   bindPort: {{.API.BindPort}}
+		nodeName: {{.NodeName}}
 		`)))
 
 	f, err := os.Create(cfgPath)
@@ -91,7 +89,7 @@ func SetupEmptyFiles(t *testing.T, tmpdir string, fileNames ...string) {
 
 // SetupPkiDirWithCertificateAuthorithy is a utility function for kubeadm testing that creates a
 // CertificateAuthorithy cert/key pair into /pki subfolder of a given temporary directory.
-// The function returns the path of the created pki.
+// The funtion returns the path of the created pki.
 func SetupPkiDirWithCertificateAuthorithy(t *testing.T, tmpdir string) string {
 	caCert, caKey := certtestutil.SetupCertificateAuthorithy(t)
 

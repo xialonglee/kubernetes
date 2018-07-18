@@ -7,7 +7,6 @@ go_library(
         "formula.go",
         "table.go",
     ],
-    importmap = "k8s.io/kubernetes/vendor/github.com/chai2010/gettext-go/gettext/plural",
     importpath = "github.com/chai2010/gettext-go/gettext/plural",
     visibility = ["//visibility:public"],
 )

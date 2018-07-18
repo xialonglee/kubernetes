@@ -26,7 +26,6 @@ import (
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
-	"k8s.io/kubernetes/test/e2e/storage/utils"
 )
 
 // verifyGCEDiskAttached performs a sanity check to verify the PD attached to the node
@@ -52,7 +51,7 @@ func initializeGCETestSpec(c clientset.Interface, ns string, pvConfig framework.
 }
 
 // Testing configurations of single a PV/PVC pair attached to a GCE PD
-var _ = utils.SIGDescribe("PersistentVolumes GCEPD", func() {
+var _ = SIGDescribe("PersistentVolumes GCEPD", func() {
 	var (
 		c         clientset.Interface
 		diskName  string
@@ -93,10 +92,11 @@ var _ = utils.SIGDescribe("PersistentVolumes GCEPD", func() {
 			},
 			Prebind: nil,
 		}
-		emptyStorageClass := ""
 		pvcConfig = framework.PersistentVolumeClaimConfig{
-			Selector:         selector,
-			StorageClassName: &emptyStorageClass,
+			Annotations: map[string]string{
+				v1.BetaStorageClassAnnotation: "",
+			},
+			Selector: selector,
 		}
 		clientPod, pv, pvc = initializeGCETestSpec(c, ns, pvConfig, pvcConfig, false)
 		node = types.NodeName(clientPod.Spec.NodeName)

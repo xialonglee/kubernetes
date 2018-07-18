@@ -68,7 +68,6 @@ go_library(
         "ZoneService.go",
         "cloudstack.go",
     ],
-    importmap = "k8s.io/kubernetes/vendor/github.com/xanzy/go-cloudstack/cloudstack",
     importpath = "github.com/xanzy/go-cloudstack/cloudstack",
     visibility = ["//visibility:public"],
 )

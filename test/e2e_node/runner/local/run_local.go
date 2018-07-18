@@ -25,7 +25,6 @@ import (
 	"strings"
 
 	"k8s.io/kubernetes/test/e2e_node/builder"
-	"k8s.io/kubernetes/test/utils"
 
 	"github.com/golang/glog"
 )
@@ -33,10 +32,10 @@ import (
 var buildDependencies = flag.Bool("build-dependencies", true, "If true, build all dependencies.")
 var ginkgoFlags = flag.String("ginkgo-flags", "", "Space-separated list of arguments to pass to Ginkgo test runner.")
 var testFlags = flag.String("test-flags", "", "Space-separated list of arguments to pass to node e2e test.")
-var systemSpecName = flag.String("system-spec-name", "", "The name of the system spec used for validating the image in the node conformance test. The specs are at k8s.io/kubernetes/cmd/kubeadm/app/util/system/specs/. If unspecified, the default built-in spec (system.DefaultSpec) will be used.")
+var systemSpecName = flag.String("system-spec-name", "", "The name of the system spec used for validating the image in the node conformance test. The specs are at test/e2e_node/system/specs/. If unspecified, the default built-in spec (system.DefaultSpec) will be used.")
 
 const (
-	systemSpecPath = "k8s.io/kubernetes/cmd/kubeadm/app/util/system/specs"
+	systemSpecPath = "test/e2e_node/system/specs"
 )
 
 func main() {
@@ -50,7 +49,7 @@ func main() {
 	}
 
 	// Run node e2e test
-	outputDir, err := utils.GetK8sBuildOutputDir()
+	outputDir, err := builder.GetK8sBuildOutputDir()
 	if err != nil {
 		glog.Fatalf("Failed to get build output directory: %v", err)
 	}
@@ -60,7 +59,7 @@ func main() {
 
 	args := []string{*ginkgoFlags, test, "--", *testFlags}
 	if *systemSpecName != "" {
-		rootDir, err := utils.GetK8sRootDir()
+		rootDir, err := builder.GetK8sRootDir()
 		if err != nil {
 			glog.Fatalf("Failed to get k8s root directory: %v", err)
 		}

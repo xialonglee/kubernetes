@@ -4,13 +4,8 @@ licenses(["notice"])
 
 filegroup(
     name = "package-srcs",
-    srcs = glob(
-        ["**"],
-        exclude = [
-            "etcd*/**",
-            "etcd*.tar.gz",
-        ],
-    ),
+    srcs = glob(["**"]),
+    tags = ["automanaged"],
     visibility = ["//visibility:private"],
 )
 
@@ -23,10 +18,10 @@ filegroup(
         "//third_party/forked/etcd237/pkg/fileutil:all-srcs",
         "//third_party/forked/etcd237/wal:all-srcs",
         "//third_party/forked/golang/expansion:all-srcs",
-        "//third_party/forked/golang/go/types:all-srcs",
         "//third_party/forked/golang/reflect:all-srcs",
         "//third_party/forked/golang/template:all-srcs",
         "//third_party/forked/gonum/graph:all-srcs",
+        "//third_party/htpasswd:all-srcs",
     ],
     tags = ["automanaged"],
 )

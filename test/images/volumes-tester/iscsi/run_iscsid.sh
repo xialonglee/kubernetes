@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
 # Copyright 2015 The Kubernetes Authors.
 #
@@ -16,26 +16,16 @@
 
 function start()
 {
-    # targetcli need dbus
-    mkdir /run/dbus
-    dbus-daemon  --system
-
-    # clear any previous configuration
-    targetcli clearconfig confirm=True
-
-    # restore configuration from saveconfig.json
     targetcli restoreconfig
-
-    # maximum log level
-    iscsid -f -d 8
-
+    iscsid
     echo "iscsid started"
 }
 
 function stop()
 {
     echo "Stopping iscsid"
-    killall iscsid
+
+    kill $( cat /var/run/iscsid.pid )
     targetcli clearconfig confirm=True
 
     echo "iscsid stopped"

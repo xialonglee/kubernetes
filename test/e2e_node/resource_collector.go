@@ -45,7 +45,6 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/e2e_node/perftype"
 
-	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
 
@@ -85,16 +84,16 @@ func NewResourceCollector(interval time.Duration) *ResourceCollector {
 // Start starts resource collector and connects to the standalone Cadvisor pod
 // then repeatedly runs collectStats.
 func (r *ResourceCollector) Start() {
-	// Get the cgroup container names for kubelet and runtime
+	// Get the cgroup container names for kubelet and docker
 	kubeletContainer, err := getContainerNameForProcess(kubeletProcessName, "")
-	runtimeContainer, err := getContainerNameForProcess(framework.TestContext.ContainerRuntimeProcessName, framework.TestContext.ContainerRuntimePidFile)
+	dockerContainer, err := getContainerNameForProcess(dockerProcessName, dockerPidFile)
 	if err == nil {
 		systemContainers = map[string]string{
 			stats.SystemContainerKubelet: kubeletContainer,
-			stats.SystemContainerRuntime: runtimeContainer,
+			stats.SystemContainerRuntime: dockerContainer,
 		}
 	} else {
-		framework.Failf("Failed to get runtime container name in test-e2e-node resource collector.")
+		framework.Failf("Failed to get docker container name in test-e2e-node resource collector.")
 	}
 
 	wait.Poll(1*time.Second, 1*time.Minute, func() (bool, error) {
@@ -220,7 +219,9 @@ func (r *ResourceCollector) GetBasicCPUStats(containerName string) map[float64]f
 
 	// We must make a copy of array, otherwise the timeseries order is changed.
 	usages := make([]*framework.ContainerResourceUsage, 0)
-	usages = append(usages, r.buffers[containerName]...)
+	for _, usage := range r.buffers[containerName] {
+		usages = append(usages, usage)
+	}
 
 	sort.Sort(resourceUsageByCPU(usages))
 	for _, q := range percentiles {
@@ -238,11 +239,12 @@ func (r *ResourceCollector) GetBasicCPUStats(containerName string) map[float64]f
 func formatResourceUsageStats(containerStats framework.ResourceUsagePerContainer) string {
 	// Example output:
 	//
-	// Resource usage:
-	//container cpu(cores) memory_working_set(MB) memory_rss(MB)
-	//"kubelet" 0.068      27.92                  15.43
-	//"runtime" 0.664      89.88                  68.13
-
+	// Resource usage for node "e2e-test-foo-node-abcde":
+	// container        cpu(cores)  memory(MB)
+	// "/"              0.363       2942.09
+	// "/docker-daemon" 0.088       521.80
+	// "/kubelet"       0.086       424.37
+	// "/system"        0.007       119.88
 	buf := &bytes.Buffer{}
 	w := tabwriter.NewWriter(buf, 1, 0, 1, ' ', 0)
 	fmt.Fprintf(w, "container\tcpu(cores)\tmemory_working_set(MB)\tmemory_rss(MB)\n")
@@ -255,7 +257,7 @@ func formatResourceUsageStats(containerStats framework.ResourceUsagePerContainer
 
 func formatCPUSummary(summary framework.ContainersCPUSummary) string {
 	// Example output for a node (the percentiles may differ):
-	// CPU usage of containers:
+	// CPU usage of containers on node "e2e-test-foo-node-0vj7":
 	// container        5th%  50th% 90th% 95th%
 	// "/"              0.051 0.159 0.387 0.455
 	// "/runtime        0.000 0.000 0.146 0.166
@@ -371,7 +373,6 @@ func deletePodsSync(f *framework.Framework, pods []*v1.Pod) {
 	for _, pod := range pods {
 		wg.Add(1)
 		go func(pod *v1.Pod) {
-			defer GinkgoRecover()
 			defer wg.Done()
 
 			err := f.PodClient().Delete(pod.ObjectMeta.Name, metav1.NewDeleteOptions(30))
@@ -458,7 +459,15 @@ func (r *ResourceCollector) GetResourceTimeSeries() map[string]*perftype.Resourc
 	return resourceSeries
 }
 
-const kubeletProcessName = "kubelet"
+// Code for getting container name of docker, copied from pkg/kubelet/cm/container_manager_linux.go
+// since they are not exposed
+const (
+	kubeletProcessName    = "kubelet"
+	dockerProcessName     = "docker"
+	dockerPidFile         = "/var/run/docker.pid"
+	containerdProcessName = "docker-containerd"
+	containerdPidFile     = "/run/docker/libcontainerd/docker-containerd.pid"
+)
 
 func getPidsForProcess(name, pidFile string) ([]int, error) {
 	if len(pidFile) > 0 {

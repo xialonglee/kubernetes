@@ -69,8 +69,9 @@ func NewCmdPreFlightMaster() *cobra.Command {
 		Long:    masterPreflightLongDesc,
 		Example: masterPreflightExample,
 		Run: func(cmd *cobra.Command, args []string) {
-			cfg := &kubeadmapi.InitConfiguration{}
-			err := preflight.RunInitMasterChecks(utilsexec.New(), cfg, sets.NewString())
+			cfg := &kubeadmapi.MasterConfiguration{}
+			criSocket := ""
+			err := preflight.RunInitMasterChecks(utilsexec.New(), cfg, criSocket, sets.NewString())
 			kubeadmutil.CheckErr(err)
 		},
 	}
@@ -86,8 +87,9 @@ func NewCmdPreFlightNode() *cobra.Command {
 		Long:    nodePreflightLongDesc,
 		Example: nodePreflightExample,
 		Run: func(cmd *cobra.Command, args []string) {
-			cfg := &kubeadmapi.JoinConfiguration{}
-			err := preflight.RunJoinNodeChecks(utilsexec.New(), cfg, sets.NewString())
+			cfg := &kubeadmapi.NodeConfiguration{}
+			criSocket := ""
+			err := preflight.RunJoinNodeChecks(utilsexec.New(), cfg, criSocket, sets.NewString())
 			kubeadmutil.CheckErr(err)
 		},
 	}

@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package priority
+package admission
 
 import (
 	"fmt"
@@ -24,7 +24,6 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apiserver/pkg/admission"
-	"k8s.io/apiserver/pkg/authentication/user"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	api "k8s.io/kubernetes/pkg/apis/core"
 	"k8s.io/kubernetes/pkg/apis/scheduling"
@@ -33,7 +32,7 @@ import (
 	"k8s.io/kubernetes/pkg/features"
 )
 
-func addPriorityClasses(ctrl *priorityPlugin, priorityClasses []*scheduling.PriorityClass) {
+func addPriorityClasses(ctrl *PriorityPlugin, priorityClasses []*scheduling.PriorityClass) {
 	informerFactory := informers.NewSharedInformerFactory(nil, controller.NoResyncPeriodFunc())
 	ctrl.SetInternalKubeInformerFactory(informerFactory)
 	// First add the existing classes to the cache.
@@ -75,65 +74,65 @@ var nondefaultClass1 = &scheduling.PriorityClass{
 	Description: "Just a test priority class",
 }
 
-var systemClusterCritical = &scheduling.PriorityClass{
-	TypeMeta: metav1.TypeMeta{
-		Kind: "PriorityClass",
-	},
-	ObjectMeta: metav1.ObjectMeta{
-		Name: scheduling.SystemClusterCritical,
-	},
-	Value:         scheduling.SystemCriticalPriority,
-	GlobalDefault: true,
-}
-
 func TestPriorityClassAdmission(t *testing.T) {
+	var tooHighPriorityClass = &scheduling.PriorityClass{
+		TypeMeta: metav1.TypeMeta{
+			Kind: "PriorityClass",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "toohighclass",
+		},
+		Value:       HighestUserDefinablePriority + 1,
+		Description: "Just a test priority class",
+	}
+
 	var systemClass = &scheduling.PriorityClass{
 		TypeMeta: metav1.TypeMeta{
 			Kind: "PriorityClass",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name: scheduling.SystemPriorityClassPrefix + "test",
+			Name: "system-cluster-critical",
 		},
-		Value:       scheduling.HighestUserDefinablePriority + 1,
-		Description: "Name has system critical prefix",
+		Value:       HighestUserDefinablePriority + 1,
+		Description: "Name conflicts with system priority class names",
 	}
 
 	tests := []struct {
 		name            string
 		existingClasses []*scheduling.PriorityClass
 		newClass        *scheduling.PriorityClass
-		userInfo        user.Info
 		expectError     bool
 	}{
 		{
 			"one default class",
 			[]*scheduling.PriorityClass{},
 			defaultClass1,
-			nil,
 			false,
 		},
 		{
 			"more than one default classes",
 			[]*scheduling.PriorityClass{defaultClass1},
 			defaultClass2,
-			nil,
 			true,
 		},
 		{
-			"system name and value are allowed by admission controller",
+			"too high PriorityClass value",
+			[]*scheduling.PriorityClass{},
+			tooHighPriorityClass,
+			true,
+		},
+		{
+			"system name conflict",
 			[]*scheduling.PriorityClass{},
 			systemClass,
-			&user.DefaultInfo{
-				Name: user.APIServerUser,
-			},
-			false,
+			true,
 		},
 	}
 
 	for _, test := range tests {
 		glog.V(4).Infof("starting test %q", test.name)
 
-		ctrl := newPlugin()
+		ctrl := NewPlugin()
 		// Add existing priority classes.
 		addPriorityClasses(ctrl, test.existingClasses)
 		// Now add the new class.
@@ -146,7 +145,7 @@ func TestPriorityClassAdmission(t *testing.T) {
 			scheduling.Resource("priorityclasses").WithVersion("version"),
 			"",
 			admission.Create,
-			test.userInfo,
+			nil,
 		)
 		err := ctrl.Validate(attrs)
 		glog.Infof("Got %v", err)
@@ -191,14 +190,6 @@ func TestDefaultPriority(t *testing.T) {
 			expectedDefaultAfter:  defaultClass1.Value,
 		},
 		{
-			name:                  "multiple default classes resolves to the minimum value among them",
-			classesBefore:         []*scheduling.PriorityClass{defaultClass1, defaultClass2},
-			classesAfter:          []*scheduling.PriorityClass{defaultClass2},
-			attributes:            admission.NewAttributesRecord(nil, nil, pcKind, "", defaultClass1.Name, pcResource, "", admission.Delete, nil),
-			expectedDefaultBefore: defaultClass1.Value,
-			expectedDefaultAfter:  defaultClass2.Value,
-		},
-		{
 			name:                  "delete default priority class",
 			classesBefore:         []*scheduling.PriorityClass{defaultClass1},
 			classesAfter:          []*scheduling.PriorityClass{},
@@ -218,7 +209,7 @@ func TestDefaultPriority(t *testing.T) {
 
 	for _, test := range tests {
 		glog.V(4).Infof("starting test %q", test.name)
-		ctrl := newPlugin()
+		ctrl := NewPlugin()
 		addPriorityClasses(ctrl, test.classesBefore)
 		defaultPriority, err := ctrl.getDefaultPriority()
 		if err != nil {
@@ -244,7 +235,6 @@ func TestDefaultPriority(t *testing.T) {
 	}
 }
 
-var zeroPriority = int32(0)
 var intPriority = int32(1000)
 
 func TestPodAdmission(t *testing.T) {
@@ -315,23 +305,7 @@ func TestPodAdmission(t *testing.T) {
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "pod-w-system-priority",
-				Namespace: metav1.NamespaceSystem,
-			},
-			Spec: api.PodSpec{
-				Containers: []api.Container{
-					{
-						Name: containerName,
-					},
-				},
-				PriorityClassName: scheduling.SystemClusterCritical,
-			},
-		},
-		// pod[5]: mirror Pod with a system priority class name
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:        "mirror-pod-w-system-priority",
-				Namespace:   metav1.NamespaceSystem,
-				Annotations: map[string]string{api.MirrorPodAnnotationKey: ""},
+				Namespace: "namespace",
 			},
 			Spec: api.PodSpec{
 				Containers: []api.Container{
@@ -342,105 +316,9 @@ func TestPodAdmission(t *testing.T) {
 				PriorityClassName: "system-cluster-critical",
 			},
 		},
-		// pod[6]: mirror Pod with integer value of priority
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:        "mirror-pod-w-integer-priority",
-				Namespace:   "namespace",
-				Annotations: map[string]string{api.MirrorPodAnnotationKey: ""},
-			},
-			Spec: api.PodSpec{
-				Containers: []api.Container{
-					{
-						Name: containerName,
-					},
-				},
-				PriorityClassName: "default1",
-				Priority:          &intPriority,
-			},
-		},
-		// pod[7]: Pod with a critical priority annotation. This needs to be automatically assigned
-		// system-cluster-critical
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:        "pod-w-system-priority",
-				Namespace:   "kube-system",
-				Annotations: map[string]string{"scheduler.alpha.kubernetes.io/critical-pod": ""},
-			},
-			Spec: api.PodSpec{
-				Containers: []api.Container{
-					{
-						Name: containerName,
-					},
-				},
-			},
-		},
-		// pod[8]: Pod with a system priority class name in non-system namespace
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "pod-w-system-priority-in-nonsystem-namespace",
-				Namespace: "non-system-namespace",
-			},
-			Spec: api.PodSpec{
-				Containers: []api.Container{
-					{
-						Name: containerName,
-					},
-				},
-				PriorityClassName: scheduling.SystemClusterCritical,
-			},
-		},
-		// pod[9]: Pod with a priority value that matches the resolved priority
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "pod-w-zero-priority-in-nonsystem-namespace",
-				Namespace: "non-system-namespace",
-			},
-			Spec: api.PodSpec{
-				Containers: []api.Container{
-					{
-						Name: containerName,
-					},
-				},
-				Priority: &zeroPriority,
-			},
-		},
-		// pod[10]: Pod with a priority value that matches the resolved default priority
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "pod-w-priority-matching-default-priority",
-				Namespace: "non-system-namespace",
-			},
-			Spec: api.PodSpec{
-				Containers: []api.Container{
-					{
-						Name: containerName,
-					},
-				},
-				Priority: &defaultClass2.Value,
-			},
-		},
-		// pod[11]: Pod with a priority value that matches the resolved priority
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "pod-w-priority-matching-resolved-default-priority",
-				Namespace: metav1.NamespaceSystem,
-			},
-			Spec: api.PodSpec{
-				Containers: []api.Container{
-					{
-						Name: containerName,
-					},
-				},
-				PriorityClassName: systemClusterCritical.Name,
-				Priority:          &systemClusterCritical.Value,
-			},
-		},
 	}
 	// Enable PodPriority feature gate.
 	utilfeature.DefaultFeatureGate.Set(fmt.Sprintf("%s=true", features.PodPriority))
-	// Enable ExperimentalCriticalPodAnnotation feature gate.
-	utilfeature.DefaultFeatureGate.Set(fmt.Sprintf("%s=true", features.ExperimentalCriticalPodAnnotation))
 	tests := []struct {
 		name            string
 		existingClasses []*scheduling.PriorityClass
@@ -481,9 +359,9 @@ func TestPodAdmission(t *testing.T) {
 		},
 		{
 			"pod with a system priority class",
-			[]*scheduling.PriorityClass{systemClusterCritical},
+			[]*scheduling.PriorityClass{},
 			*pods[4],
-			scheduling.SystemCriticalPriority,
+			SystemCriticalPriority,
 			false,
 		},
 		{
@@ -500,61 +378,12 @@ func TestPodAdmission(t *testing.T) {
 			0,
 			true,
 		},
-		{
-			"mirror pod with system priority class",
-			[]*scheduling.PriorityClass{systemClusterCritical},
-			*pods[5],
-			scheduling.SystemCriticalPriority,
-			false,
-		},
-		{
-			"mirror pod with integer priority",
-			[]*scheduling.PriorityClass{},
-			*pods[6],
-			0,
-			true,
-		},
-		{
-			"pod with critical pod annotation",
-			[]*scheduling.PriorityClass{systemClusterCritical},
-			*pods[7],
-			scheduling.SystemCriticalPriority,
-			false,
-		},
-		{
-			"pod with system critical priority in non-system namespace",
-			[]*scheduling.PriorityClass{systemClusterCritical},
-			*pods[8],
-			scheduling.SystemCriticalPriority,
-			true,
-		},
-		{
-			"pod with priority that matches computed priority",
-			[]*scheduling.PriorityClass{nondefaultClass1},
-			*pods[9],
-			0,
-			false,
-		},
-		{
-			"pod with priority that matches default priority",
-			[]*scheduling.PriorityClass{defaultClass2},
-			*pods[10],
-			defaultClass2.Value,
-			false,
-		},
-		{
-			"pod with priority that matches resolved priority",
-			[]*scheduling.PriorityClass{systemClusterCritical},
-			*pods[11],
-			systemClusterCritical.Value,
-			false,
-		},
 	}
 
 	for _, test := range tests {
 		glog.V(4).Infof("starting test %q", test.name)
 
-		ctrl := newPlugin()
+		ctrl := NewPlugin()
 		// Add existing priority classes.
 		addPriorityClasses(ctrl, test.existingClasses)
 
@@ -575,7 +404,8 @@ func TestPodAdmission(t *testing.T) {
 		if !test.expectError {
 			if err != nil {
 				t.Errorf("Test %q: unexpected error received: %v", test.name, err)
-			} else if *test.pod.Spec.Priority != test.expectedPriority {
+			}
+			if *test.pod.Spec.Priority != test.expectedPriority {
 				t.Errorf("Test %q: expected priority is %d, but got %d.", test.name, test.expectedPriority, *test.pod.Spec.Priority)
 			}
 		}

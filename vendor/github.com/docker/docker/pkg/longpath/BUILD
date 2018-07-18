@@ -3,7 +3,6 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library")
 go_library(
     name = "go_default_library",
     srcs = ["longpath.go"],
-    importmap = "k8s.io/kubernetes/vendor/github.com/docker/docker/pkg/longpath",
     importpath = "github.com/docker/docker/pkg/longpath",
     visibility = ["//visibility:public"],
 )

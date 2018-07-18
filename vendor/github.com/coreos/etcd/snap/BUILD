@@ -8,7 +8,6 @@ go_library(
         "metrics.go",
         "snapshotter.go",
     ],
-    importmap = "k8s.io/kubernetes/vendor/github.com/coreos/etcd/snap",
     importpath = "github.com/coreos/etcd/snap",
     visibility = ["//visibility:public"],
     deps = [

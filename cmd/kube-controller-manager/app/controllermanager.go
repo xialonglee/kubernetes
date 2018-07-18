@@ -21,40 +21,49 @@ limitations under the License.
 package app
 
 import (
-	"context"
 	"fmt"
 	"io/ioutil"
 	"math/rand"
+	"net"
+	"net/http"
+	"net/http/pprof"
 	"os"
+	goruntime "runtime"
+	"strconv"
 	"time"
-
-	"github.com/golang/glog"
-	"github.com/spf13/cobra"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/apimachinery/pkg/util/wait"
-	cacheddiscovery "k8s.io/client-go/discovery/cached"
-	"k8s.io/client-go/informers"
+
+	"k8s.io/apiserver/pkg/server/healthz"
+
+	"k8s.io/api/core/v1"
+	"k8s.io/client-go/discovery"
+	v1core "k8s.io/client-go/kubernetes/typed/core/v1"
 	restclient "k8s.io/client-go/rest"
-	"k8s.io/client-go/restmapper"
+	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/tools/record"
+	certutil "k8s.io/client-go/util/cert"
+
+	"k8s.io/client-go/informers"
+	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/leaderelection"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
-	certutil "k8s.io/client-go/util/cert"
-	genericcontrollermanager "k8s.io/kubernetes/cmd/controller-manager/app"
-	"k8s.io/kubernetes/cmd/kube-controller-manager/app/config"
 	"k8s.io/kubernetes/cmd/kube-controller-manager/app/options"
-	"k8s.io/kubernetes/pkg/apis/componentconfig"
+	"k8s.io/kubernetes/pkg/api/legacyscheme"
 	"k8s.io/kubernetes/pkg/cloudprovider"
 	"k8s.io/kubernetes/pkg/controller"
 	serviceaccountcontroller "k8s.io/kubernetes/pkg/controller/serviceaccount"
 	"k8s.io/kubernetes/pkg/serviceaccount"
 	"k8s.io/kubernetes/pkg/util/configz"
-	utilflag "k8s.io/kubernetes/pkg/util/flag"
 	"k8s.io/kubernetes/pkg/version"
-	"k8s.io/kubernetes/pkg/version/verflag"
+
+	"github.com/golang/glog"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 const (
@@ -62,20 +71,10 @@ const (
 	ControllerStartJitter = 1.0
 )
 
-type ControllerLoopMode int
-
-const (
-	IncludeCloudLoops ControllerLoopMode = iota
-	ExternalLoops
-)
-
 // NewControllerManagerCommand creates a *cobra.Command object with default parameters
 func NewControllerManagerCommand() *cobra.Command {
-	s, err := options.NewKubeControllerManagerOptions()
-	if err != nil {
-		glog.Fatalf("unable to initialize command options: %v", err)
-	}
-
+	s := options.NewCMServer()
+	s.AddFlags(pflag.CommandLine, KnownControllers(), ControllersDisabledByDefault.List())
 	cmd := &cobra.Command{
 		Use: "kube-controller-manager",
 		Long: `The Kubernetes controller manager is a daemon that embeds
@@ -87,22 +86,8 @@ current state towards the desired state. Examples of controllers that ship with
 Kubernetes today are the replication controller, endpoints controller, namespace
 controller, and serviceaccounts controller.`,
 		Run: func(cmd *cobra.Command, args []string) {
-			verflag.PrintAndExitIfRequested()
-			utilflag.PrintFlags(cmd.Flags())
-
-			c, err := s.Config(KnownControllers(), ControllersDisabledByDefault.List())
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "%v\n", err)
-				os.Exit(1)
-			}
-
-			if err := Run(c.Complete(), wait.NeverStop); err != nil {
-				fmt.Fprintf(os.Stderr, "%v\n", err)
-				os.Exit(1)
-			}
 		},
 	}
-	s.AddFlags(cmd.Flags(), KnownControllers(), ControllersDisabledByDefault.List())
 
 	return cmd
 }
@@ -110,78 +95,74 @@ controller, and serviceaccounts controller.`,
 // ResyncPeriod returns a function which generates a duration each time it is
 // invoked; this is so that multiple controllers don't get into lock-step and all
 // hammer the apiserver with list requests simultaneously.
-func ResyncPeriod(c *config.CompletedConfig) func() time.Duration {
+func ResyncPeriod(s *options.CMServer) func() time.Duration {
 	return func() time.Duration {
 		factor := rand.Float64() + 1
-		return time.Duration(float64(c.ComponentConfig.GenericComponent.MinResyncPeriod.Nanoseconds()) * factor)
+		return time.Duration(float64(s.MinResyncPeriod.Nanoseconds()) * factor)
 	}
 }
 
-// Run runs the KubeControllerManagerOptions.  This should never exit.
-func Run(c *config.CompletedConfig, stopCh <-chan struct{}) error {
+// Run runs the CMServer.  This should never exit.
+func Run(s *options.CMServer) error {
 	// To help debugging, immediately log version
 	glog.Infof("Version: %+v", version.Get())
+	if err := s.Validate(KnownControllers(), ControllersDisabledByDefault.List()); err != nil {
+		return err
+	}
 
-	if cfgz, err := configz.New("componentconfig"); err == nil {
-		cfgz.Set(c.ComponentConfig)
+	if c, err := configz.New("componentconfig"); err == nil {
+		c.Set(s.KubeControllerManagerConfiguration)
 	} else {
-		glog.Errorf("unable to register configz: %c", err)
+		glog.Errorf("unable to register configz: %s", err)
 	}
 
-	// Start the controller manager HTTP server
-	if c.SecureServing != nil {
-		handler := genericcontrollermanager.NewBaseHandler(&c.ComponentConfig.Debugging)
-		handler = genericcontrollermanager.BuildHandlerChain(handler, &c.Authorization, &c.Authentication)
-		if err := c.SecureServing.Serve(handler, 0, stopCh); err != nil {
-			return err
-		}
-	}
-	if c.InsecureServing != nil {
-		handler := genericcontrollermanager.NewBaseHandler(&c.ComponentConfig.Debugging)
-		handler = genericcontrollermanager.BuildHandlerChain(handler, &c.Authorization, &c.Authentication)
-		if err := c.InsecureServing.Serve(handler, 0, stopCh); err != nil {
-			return err
-		}
+	kubeClient, leaderElectionClient, kubeconfig, err := createClients(s)
+	if err != nil {
+		return err
 	}
 
-	run := func(ctx context.Context) {
+	go startHTTP(s)
+
+	recorder := createRecorder(kubeClient)
+
+	run := func(stop <-chan struct{}) {
 		rootClientBuilder := controller.SimpleControllerClientBuilder{
-			ClientConfig: c.Kubeconfig,
+			ClientConfig: kubeconfig,
 		}
 		var clientBuilder controller.ControllerClientBuilder
-		if c.ComponentConfig.KubeCloudShared.UseServiceAccountCredentials {
-			if len(c.ComponentConfig.SAController.ServiceAccountKeyFile) == 0 {
-				// It'c possible another controller process is creating the tokens for us.
+		if s.UseServiceAccountCredentials {
+			if len(s.ServiceAccountKeyFile) == 0 {
+				// It's possible another controller process is creating the tokens for us.
 				// If one isn't, we'll timeout and exit when our client builder is unable to create the tokens.
 				glog.Warningf("--use-service-account-credentials was specified without providing a --service-account-private-key-file")
 			}
 			clientBuilder = controller.SAControllerClientBuilder{
-				ClientConfig:         restclient.AnonymousClientConfig(c.Kubeconfig),
-				CoreClient:           c.Client.CoreV1(),
-				AuthenticationClient: c.Client.AuthenticationV1(),
+				ClientConfig:         restclient.AnonymousClientConfig(kubeconfig),
+				CoreClient:           kubeClient.CoreV1(),
+				AuthenticationClient: kubeClient.Authentication(),
 				Namespace:            "kube-system",
 			}
 		} else {
 			clientBuilder = rootClientBuilder
 		}
-		controllerContext, err := CreateControllerContext(c, rootClientBuilder, clientBuilder, ctx.Done())
+		ctx, err := CreateControllerContext(s, rootClientBuilder, clientBuilder, stop)
 		if err != nil {
 			glog.Fatalf("error building controller context: %v", err)
 		}
 		saTokenControllerInitFunc := serviceAccountTokenControllerStarter{rootClientBuilder: rootClientBuilder}.startServiceAccountTokenController
 
-		if err := StartControllers(controllerContext, saTokenControllerInitFunc, NewControllerInitializers(controllerContext.LoopMode)); err != nil {
+		if err := StartControllers(ctx, saTokenControllerInitFunc, NewControllerInitializers()); err != nil {
 			glog.Fatalf("error starting controllers: %v", err)
 		}
 
-		controllerContext.InformerFactory.Start(controllerContext.Stop)
-		close(controllerContext.InformersStarted)
+		ctx.InformerFactory.Start(ctx.Stop)
+		close(ctx.InformersStarted)
 
 		select {}
 	}
 
-	if !c.ComponentConfig.GenericComponent.LeaderElection.LeaderElect {
-		run(context.TODO())
+	if !s.LeaderElection.LeaderElect {
+		run(nil)
 		panic("unreachable")
 	}
 
@@ -190,25 +171,23 @@ func Run(c *config.CompletedConfig, stopCh <-chan struct{}) error {
 		return err
 	}
 
-	// add a uniquifier so that two processes on the same host don't accidentally both become active
-	id = id + "_" + string(uuid.NewUUID())
-	rl, err := resourcelock.New(c.ComponentConfig.GenericComponent.LeaderElection.ResourceLock,
+	rl, err := resourcelock.New(s.LeaderElection.ResourceLock,
 		"kube-system",
 		"kube-controller-manager",
-		c.LeaderElectionClient.CoreV1(),
+		leaderElectionClient.CoreV1(),
 		resourcelock.ResourceLockConfig{
 			Identity:      id,
-			EventRecorder: c.EventRecorder,
+			EventRecorder: recorder,
 		})
 	if err != nil {
 		glog.Fatalf("error creating lock: %v", err)
 	}
 
-	leaderelection.RunOrDie(context.TODO(), leaderelection.LeaderElectionConfig{
+	leaderelection.RunOrDie(leaderelection.LeaderElectionConfig{
 		Lock:          rl,
-		LeaseDuration: c.ComponentConfig.GenericComponent.LeaderElection.LeaseDuration.Duration,
-		RenewDeadline: c.ComponentConfig.GenericComponent.LeaderElection.RenewDeadline.Duration,
-		RetryPeriod:   c.ComponentConfig.GenericComponent.LeaderElection.RetryPeriod.Duration,
+		LeaseDuration: s.LeaderElection.LeaseDuration.Duration,
+		RenewDeadline: s.LeaderElection.RenewDeadline.Duration,
+		RetryPeriod:   s.LeaderElection.RetryPeriod.Duration,
 		Callbacks: leaderelection.LeaderCallbacks{
 			OnStartedLeading: run,
 			OnStoppedLeading: func() {
@@ -219,6 +198,53 @@ func Run(c *config.CompletedConfig, stopCh <-chan struct{}) error {
 	panic("unreachable")
 }
 
+func startHTTP(s *options.CMServer) {
+	mux := http.NewServeMux()
+	healthz.InstallHandler(mux)
+	if s.EnableProfiling {
+		mux.HandleFunc("/debug/pprof/", pprof.Index)
+		mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+		mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+		mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+		if s.EnableContentionProfiling {
+			goruntime.SetBlockProfileRate(1)
+		}
+	}
+	configz.InstallHandler(mux)
+	mux.Handle("/metrics", prometheus.Handler())
+
+	server := &http.Server{
+		Addr:    net.JoinHostPort(s.Address, strconv.Itoa(int(s.Port))),
+		Handler: mux,
+	}
+	glog.Fatal(server.ListenAndServe())
+}
+
+func createRecorder(kubeClient *clientset.Clientset) record.EventRecorder {
+	eventBroadcaster := record.NewBroadcaster()
+	eventBroadcaster.StartLogging(glog.Infof)
+	eventBroadcaster.StartRecordingToSink(&v1core.EventSinkImpl{Interface: v1core.New(kubeClient.CoreV1().RESTClient()).Events("")})
+	return eventBroadcaster.NewRecorder(legacyscheme.Scheme, v1.EventSource{Component: "controller-manager"})
+}
+
+func createClients(s *options.CMServer) (*clientset.Clientset, *clientset.Clientset, *restclient.Config, error) {
+	kubeconfig, err := clientcmd.BuildConfigFromFlags(s.Master, s.Kubeconfig)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	kubeconfig.ContentConfig.ContentType = s.ContentType
+	// Override kubeconfig qps/burst settings from flags
+	kubeconfig.QPS = s.KubeAPIQPS
+	kubeconfig.Burst = int(s.KubeAPIBurst)
+	kubeClient, err := clientset.NewForConfig(restclient.AddUserAgent(kubeconfig, "controller-manager"))
+	if err != nil {
+		glog.Fatalf("Invalid API configuration: %v", err)
+	}
+	leaderElectionClient := clientset.NewForConfigOrDie(restclient.AddUserAgent(kubeconfig, "leader-election"))
+	return kubeClient, leaderElectionClient, kubeconfig, nil
+}
+
 type ControllerContext struct {
 	// ClientBuilder will provide a client for this controller to use
 	ClientBuilder controller.ControllerClientBuilder
@@ -226,13 +252,8 @@ type ControllerContext struct {
 	// InformerFactory gives access to informers for the controller.
 	InformerFactory informers.SharedInformerFactory
 
-	// ComponentConfig provides access to init options for a given controller
-	ComponentConfig componentconfig.KubeControllerManagerConfiguration
-
-	// DeferredDiscoveryRESTMapper is a RESTMapper that will defer
-	// initialization of the RESTMapper until the first mapping is
-	// requested.
-	RESTMapper *restmapper.DeferredDiscoveryRESTMapper
+	// Options provides access to init options for a given controller
+	Options options.CMServer
 
 	// AvailableResources is a map listing currently available resources
 	AvailableResources map[schema.GroupVersionResource]bool
@@ -241,26 +262,16 @@ type ControllerContext struct {
 	// It must be initialized and ready to use.
 	Cloud cloudprovider.Interface
 
-	// Control for which control loops to be run
-	// IncludeCloudLoops is for a kube-controller-manager running all loops
-	// ExternalLoops is for a kube-controller-manager running with a cloud-controller-manager
-	LoopMode ControllerLoopMode
-
 	// Stop is the stop channel
 	Stop <-chan struct{}
 
 	// InformersStarted is closed after all of the controllers have been initialized and are running.  After this point it is safe,
 	// for an individual controller to start the shared informers. Before it is closed, they should not.
 	InformersStarted chan struct{}
-
-	// ResyncPeriod generates a duration each time it is invoked; this is so that
-	// multiple controllers don't get into lock-step and all hammer the apiserver
-	// with list requests simultaneously.
-	ResyncPeriod func() time.Duration
 }
 
 func (c ControllerContext) IsControllerEnabled(name string) bool {
-	return IsControllerEnabled(name, ControllersDisabledByDefault, c.ComponentConfig.Controllers...)
+	return IsControllerEnabled(name, ControllersDisabledByDefault, c.Options.Controllers...)
 }
 
 func IsControllerEnabled(name string, disabledByDefaultControllers sets.String, controllers ...string) bool {
@@ -294,7 +305,7 @@ func IsControllerEnabled(name string, disabledByDefaultControllers sets.String, 
 type InitFunc func(ctx ControllerContext) (bool, error)
 
 func KnownControllers() []string {
-	ret := sets.StringKeySet(NewControllerInitializers(IncludeCloudLoops))
+	ret := sets.StringKeySet(NewControllerInitializers())
 
 	// add "special" controllers that aren't initialized normally.  These controllers cannot be initialized
 	// using a normal function.  The only known special case is the SA token controller which *must* be started
@@ -318,7 +329,7 @@ const (
 
 // NewControllerInitializers is a public map of named controller groups (you can start more than one in an init func)
 // paired to their InitFunc.  This allows for structured downstream composition and subdivision.
-func NewControllerInitializers(loopMode ControllerLoopMode) map[string]InitFunc {
+func NewControllerInitializers() map[string]InitFunc {
 	controllers := map[string]InitFunc{}
 	controllers["endpoint"] = startEndpointController
 	controllers["replicationcontroller"] = startReplicationController
@@ -341,20 +352,14 @@ func NewControllerInitializers(loopMode ControllerLoopMode) map[string]InitFunc 
 	controllers["ttl"] = startTTLController
 	controllers["bootstrapsigner"] = startBootstrapSignerController
 	controllers["tokencleaner"] = startTokenCleanerController
-	controllers["nodeipam"] = startNodeIpamController
-	if loopMode == IncludeCloudLoops {
-		controllers["service"] = startServiceController
-		controllers["route"] = startRouteController
-		// TODO: volume controller into the IncludeCloudLoops only set.
-		// TODO: Separate cluster in cloud check from node lifecycle controller.
-	}
-	controllers["nodelifecycle"] = startNodeLifecycleController
+	controllers["service"] = startServiceController
+	controllers["node"] = startNodeController
+	controllers["route"] = startRouteController
 	controllers["persistentvolume-binder"] = startPersistentVolumeBinderController
 	controllers["attachdetach"] = startAttachDetachController
 	controllers["persistentvolume-expander"] = startVolumeExpandController
 	controllers["clusterrole-aggregation"] = startClusterRoleAggregrationController
 	controllers["pvc-protection"] = startPVCProtectionController
-	controllers["pv-protection"] = startPVProtectionController
 
 	return controllers
 }
@@ -363,8 +368,34 @@ func NewControllerInitializers(loopMode ControllerLoopMode) map[string]InitFunc 
 //  users don't have to restart their controller manager if they change the apiserver.
 // Until we get there, the structure here needs to be exposed for the construction of a proper ControllerContext.
 func GetAvailableResources(clientBuilder controller.ControllerClientBuilder) (map[schema.GroupVersionResource]bool, error) {
-	client := clientBuilder.ClientOrDie("controller-discovery")
-	discoveryClient := client.Discovery()
+	var discoveryClient discovery.DiscoveryInterface
+
+	var healthzContent string
+	// If apiserver is not running we should wait for some time and fail only then. This is particularly
+	// important when we start apiserver and controller manager at the same time.
+	err := wait.PollImmediate(time.Second, 10*time.Second, func() (bool, error) {
+		client, err := clientBuilder.Client("controller-discovery")
+		if err != nil {
+			glog.Errorf("Failed to get api versions from server: %v", err)
+			return false, nil
+		}
+
+		healthStatus := 0
+		resp := client.Discovery().RESTClient().Get().AbsPath("/healthz").Do().StatusCode(&healthStatus)
+		if healthStatus != http.StatusOK {
+			glog.Errorf("Server isn't healthy yet.  Waiting a little while.")
+			return false, nil
+		}
+		content, _ := resp.Raw()
+		healthzContent = string(content)
+
+		discoveryClient = client.Discovery()
+		return true, nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get api versions from server: %v: %v", healthzContent, err)
+	}
+
 	resourceMap, err := discoveryClient.ServerResources()
 	if err != nil {
 		utilruntime.HandleError(fmt.Errorf("unable to get all supported resources from server: %v", err))
@@ -390,46 +421,40 @@ func GetAvailableResources(clientBuilder controller.ControllerClientBuilder) (ma
 // CreateControllerContext creates a context struct containing references to resources needed by the
 // controllers such as the cloud provider and clientBuilder. rootClientBuilder is only used for
 // the shared-informers client and token controller.
-func CreateControllerContext(s *config.CompletedConfig, rootClientBuilder, clientBuilder controller.ControllerClientBuilder, stop <-chan struct{}) (ControllerContext, error) {
+func CreateControllerContext(s *options.CMServer, rootClientBuilder, clientBuilder controller.ControllerClientBuilder, stop <-chan struct{}) (ControllerContext, error) {
 	versionedClient := rootClientBuilder.ClientOrDie("shared-informers")
 	sharedInformers := informers.NewSharedInformerFactory(versionedClient, ResyncPeriod(s)())
-
-	// If apiserver is not running we should wait for some time and fail only then. This is particularly
-	// important when we start apiserver and controller manager at the same time.
-	if err := genericcontrollermanager.WaitForAPIServer(versionedClient, 10*time.Second); err != nil {
-		return ControllerContext{}, fmt.Errorf("failed to wait for apiserver being healthy: %v", err)
-	}
-
-	// Use a discovery client capable of being refreshed.
-	discoveryClient := rootClientBuilder.ClientOrDie("controller-discovery")
-	cachedClient := cacheddiscovery.NewMemCacheClient(discoveryClient.Discovery())
-	restMapper := restmapper.NewDeferredDiscoveryRESTMapper(cachedClient)
-	go wait.Until(func() {
-		restMapper.Reset()
-	}, 30*time.Second, stop)
 
 	availableResources, err := GetAvailableResources(rootClientBuilder)
 	if err != nil {
 		return ControllerContext{}, err
 	}
 
-	cloud, loopMode, err := createCloudProvider(s.ComponentConfig.CloudProvider.Name, s.ComponentConfig.ExternalCloudVolumePlugin,
-		s.ComponentConfig.CloudProvider.CloudConfigFile, s.ComponentConfig.KubeCloudShared.AllowUntaggedCloud, sharedInformers)
+	cloud, err := cloudprovider.InitCloudProvider(s.CloudProvider, s.CloudConfigFile)
 	if err != nil {
-		return ControllerContext{}, err
+		return ControllerContext{}, fmt.Errorf("cloud provider could not be initialized: %v", err)
+	}
+
+	if cloud != nil && cloud.HasClusterID() == false {
+		if s.AllowUntaggedCloud == true {
+			glog.Warning("detected a cluster without a ClusterID.  A ClusterID will be required in the future.  Please tag your cluster to avoid any future issues")
+		} else {
+			return ControllerContext{}, fmt.Errorf("no ClusterID Found.  A ClusterID is required for the cloud provider to function properly.  This check can be bypassed by setting the allow-untagged-cloud option")
+		}
+	}
+
+	if informerUserCloud, ok := cloud.(cloudprovider.InformerUser); ok {
+		informerUserCloud.SetInformers(sharedInformers)
 	}
 
 	ctx := ControllerContext{
 		ClientBuilder:      clientBuilder,
 		InformerFactory:    sharedInformers,
-		ComponentConfig:    s.ComponentConfig,
-		RESTMapper:         restMapper,
+		Options:            *s,
 		AvailableResources: availableResources,
 		Cloud:              cloud,
-		LoopMode:           loopMode,
 		Stop:               stop,
 		InformersStarted:   make(chan struct{}),
-		ResyncPeriod:       ResyncPeriod(s),
 	}
 	return ctx, nil
 }
@@ -453,7 +478,7 @@ func StartControllers(ctx ControllerContext, startSATokenController InitFunc, co
 			continue
 		}
 
-		time.Sleep(wait.Jitter(ctx.ComponentConfig.GenericComponent.ControllerStartInterval.Duration, ControllerStartJitter))
+		time.Sleep(wait.Jitter(ctx.Options.ControllerStartInterval.Duration, ControllerStartJitter))
 
 		glog.V(1).Infof("Starting %q", controllerName)
 		started, err := initFn(ctx)
@@ -484,23 +509,23 @@ func (c serviceAccountTokenControllerStarter) startServiceAccountTokenController
 		return false, nil
 	}
 
-	if len(ctx.ComponentConfig.SAController.ServiceAccountKeyFile) == 0 {
+	if len(ctx.Options.ServiceAccountKeyFile) == 0 {
 		glog.Warningf("%q is disabled because there is no private key", saTokenControllerName)
 		return false, nil
 	}
-	privateKey, err := certutil.PrivateKeyFromFile(ctx.ComponentConfig.SAController.ServiceAccountKeyFile)
+	privateKey, err := certutil.PrivateKeyFromFile(ctx.Options.ServiceAccountKeyFile)
 	if err != nil {
 		return true, fmt.Errorf("error reading key for service account token controller: %v", err)
 	}
 
 	var rootCA []byte
-	if ctx.ComponentConfig.SAController.RootCAFile != "" {
-		rootCA, err = ioutil.ReadFile(ctx.ComponentConfig.SAController.RootCAFile)
+	if ctx.Options.RootCAFile != "" {
+		rootCA, err = ioutil.ReadFile(ctx.Options.RootCAFile)
 		if err != nil {
-			return true, fmt.Errorf("error reading root-ca-file at %s: %v", ctx.ComponentConfig.SAController.RootCAFile, err)
+			return true, fmt.Errorf("error reading root-ca-file at %s: %v", ctx.Options.RootCAFile, err)
 		}
 		if _, err := certutil.ParseCertsPEM(rootCA); err != nil {
-			return true, fmt.Errorf("error parsing root-ca-file at %s: %v", ctx.ComponentConfig.SAController.RootCAFile, err)
+			return true, fmt.Errorf("error parsing root-ca-file at %s: %v", ctx.Options.RootCAFile, err)
 		}
 	} else {
 		rootCA = c.rootClientBuilder.ConfigOrDie("tokens-controller").CAData
@@ -511,14 +536,14 @@ func (c serviceAccountTokenControllerStarter) startServiceAccountTokenController
 		ctx.InformerFactory.Core().V1().Secrets(),
 		c.rootClientBuilder.ClientOrDie("tokens-controller"),
 		serviceaccountcontroller.TokensControllerOptions{
-			TokenGenerator: serviceaccount.JWTTokenGenerator(serviceaccount.LegacyIssuer, privateKey),
+			TokenGenerator: serviceaccount.JWTTokenGenerator(privateKey),
 			RootCA:         rootCA,
 		},
 	)
 	if err != nil {
 		return true, fmt.Errorf("error creating Tokens controller: %v", err)
 	}
-	go controller.Run(int(ctx.ComponentConfig.SAController.ConcurrentSATokenSyncs), ctx.Stop)
+	go controller.Run(int(ctx.Options.ConcurrentSATokenSyncs), ctx.Stop)
 
 	// start the first set of informers now so that other controllers can start
 	ctx.InformerFactory.Start(ctx.Stop)

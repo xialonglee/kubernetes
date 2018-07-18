@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/kubernetes/cmd/kubeadm/app/preflight"
 )
 
 const (
@@ -32,6 +33,10 @@ const (
 	// ValidationExitCode defines the exit code validation checks
 	ValidationExitCode = 3
 )
+
+type debugError interface {
+	DebugError() (msg string, args []interface{})
+}
 
 // fatal prints the message if set and then exits.
 func fatal(msg string, code int) {
@@ -52,22 +57,16 @@ func fatal(msg string, code int) {
 // This method is generic to the command in use and may be used by non-Kubectl
 // commands.
 func CheckErr(err error) {
-	checkErr(err, fatal)
-}
-
-// preflightError allows us to know if the error is a preflight error or not
-// defining the interface here avoids an import cycle of pulling in preflight into the util package
-type preflightError interface {
-	Preflight() bool
+	checkErr("", err, fatal)
 }
 
 // checkErr formats a given error as a string and calls the passed handleErr
-// func with that string and an exit code.
-func checkErr(err error, handleErr func(string, int)) {
+// func with that string and an kubectl exit code.
+func checkErr(prefix string, err error, handleErr func(string, int)) {
 	switch err.(type) {
 	case nil:
 		return
-	case preflightError:
+	case *preflight.Error:
 		handleErr(err.Error(), PreFlightExitCode)
 	case utilerrors.Aggregate:
 		handleErr(err.Error(), ValidationExitCode)

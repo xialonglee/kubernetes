@@ -8,7 +8,6 @@ go_library(
         "store.go",
         "validate.go",
     ],
-    importmap = "k8s.io/kubernetes/vendor/github.com/containerd/containerd/namespaces",
     importpath = "github.com/containerd/containerd/namespaces",
     visibility = ["//visibility:public"],
     deps = [

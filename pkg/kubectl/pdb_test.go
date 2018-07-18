@@ -36,14 +36,12 @@ func TestPodDisruptionBudgetV1Generate(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 
-	tests := []struct {
-		name         string
+	tests := map[string]struct {
 		params       map[string]interface{}
 		expectErrMsg string
 		expectPDB    *policy.PodDisruptionBudget
 	}{
-		{
-			name: "test-valid-use",
+		"test-valid-use": {
 			params: map[string]interface{}{
 				"name":          name,
 				"min-available": minAvailable,
@@ -59,16 +57,14 @@ func TestPodDisruptionBudgetV1Generate(t *testing.T) {
 				},
 			},
 		},
-		{
-			name: "test-missing-name-param",
+		"test-missing-name-param": {
 			params: map[string]interface{}{
 				"min-available": minAvailable,
 				"selector":      selector,
 			},
 			expectErrMsg: "Parameter: name is required",
 		},
-		{
-			name: "test-blank-name-param",
+		"test-blank-name-param": {
 			params: map[string]interface{}{
 				"name":          "",
 				"min-available": minAvailable,
@@ -76,8 +72,7 @@ func TestPodDisruptionBudgetV1Generate(t *testing.T) {
 			},
 			expectErrMsg: "Parameter: name is required",
 		},
-		{
-			name: "test-invalid-name-param",
+		"test-invalid-name-param": {
 			params: map[string]interface{}{
 				"name":          1,
 				"min-available": minAvailable,
@@ -85,16 +80,14 @@ func TestPodDisruptionBudgetV1Generate(t *testing.T) {
 			},
 			expectErrMsg: "expected string, found int for 'name'",
 		},
-		{
-			name: "test-missing-min-available-param",
+		"test-missing-min-available-param": {
 			params: map[string]interface{}{
 				"name":     name,
 				"selector": selector,
 			},
 			expectErrMsg: "expected string, found <nil> for 'min-available'",
 		},
-		{
-			name: "test-blank-min-available-param",
+		"test-blank-min-available-param": {
 			params: map[string]interface{}{
 				"name":          name,
 				"min-available": "",
@@ -110,8 +103,7 @@ func TestPodDisruptionBudgetV1Generate(t *testing.T) {
 				},
 			},
 		},
-		{
-			name: "test-invalid-min-available-param",
+		"test-invalid-min-available-param": {
 			params: map[string]interface{}{
 				"name":          name,
 				"min-available": 1,
@@ -119,16 +111,14 @@ func TestPodDisruptionBudgetV1Generate(t *testing.T) {
 			},
 			expectErrMsg: "expected string, found int for 'min-available'",
 		},
-		{
-			name: "test-missing-selector-param",
+		"test-missing-selector-param": {
 			params: map[string]interface{}{
 				"name":          name,
 				"min-available": minAvailable,
 			},
 			expectErrMsg: "Parameter: selector is required",
 		},
-		{
-			name: "test-blank-selector-param",
+		"test-blank-selector-param": {
 			params: map[string]interface{}{
 				"name":          name,
 				"min-available": minAvailable,
@@ -136,8 +126,7 @@ func TestPodDisruptionBudgetV1Generate(t *testing.T) {
 			},
 			expectErrMsg: "Parameter: selector is required",
 		},
-		{
-			name: "test-invalid-selector-param",
+		"test-invalid-selector-param": {
 			params: map[string]interface{}{
 				"name":          name,
 				"min-available": minAvailable,
@@ -148,26 +137,24 @@ func TestPodDisruptionBudgetV1Generate(t *testing.T) {
 	}
 
 	generator := PodDisruptionBudgetV1Generator{}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			obj, err := generator.Generate(tt.params)
-			switch {
-			case tt.expectErrMsg != "" && err != nil:
-				if err.Error() != tt.expectErrMsg {
-					t.Errorf("test '%s': expect error '%s', but saw '%s'", tt.name, tt.expectErrMsg, err.Error())
-				}
-				return
-			case tt.expectErrMsg != "" && err == nil:
-				t.Errorf("test '%s': expected error '%s' and didn't get one", tt.name, tt.expectErrMsg)
-				return
-			case tt.expectErrMsg == "" && err != nil:
-				t.Errorf("test '%s': unexpected error %s", tt.name, err.Error())
-				return
+	for name, test := range tests {
+		obj, err := generator.Generate(test.params)
+		switch {
+		case test.expectErrMsg != "" && err != nil:
+			if err.Error() != test.expectErrMsg {
+				t.Errorf("test '%s': expect error '%s', but saw '%s'", name, test.expectErrMsg, err.Error())
 			}
-			if !reflect.DeepEqual(obj.(*policy.PodDisruptionBudget), tt.expectPDB) {
-				t.Errorf("test '%s': expected:\n%#v\nsaw:\n%#v", tt.name, tt.expectPDB, obj.(*policy.PodDisruptionBudget))
-			}
-		})
+			continue
+		case test.expectErrMsg != "" && err == nil:
+			t.Errorf("test '%s': expected error '%s' and didn't get one", name, test.expectErrMsg)
+			continue
+		case test.expectErrMsg == "" && err != nil:
+			t.Errorf("test '%s': unexpected error %s", name, err.Error())
+			continue
+		}
+		if !reflect.DeepEqual(obj.(*policy.PodDisruptionBudget), test.expectPDB) {
+			t.Errorf("test '%s': expected:\n%#v\nsaw:\n%#v", name, test.expectPDB, obj.(*policy.PodDisruptionBudget))
+		}
 	}
 }
 
@@ -183,14 +170,12 @@ func TestPodDisruptionBudgetV2Generate(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 
-	tests := []struct {
-		name         string
+	tests := map[string]struct {
 		params       map[string]interface{}
 		expectErrMsg string
 		expectPDB    *policy.PodDisruptionBudget
 	}{
-		{
-			name: "test-valid-min-available",
+		"test-valid-min-available": {
 			params: map[string]interface{}{
 				"name":            name,
 				"min-available":   minAvailable,
@@ -207,8 +192,7 @@ func TestPodDisruptionBudgetV2Generate(t *testing.T) {
 				},
 			},
 		},
-		{
-			name: "test-valid-max-available",
+		"test-valid-max-available": {
 			params: map[string]interface{}{
 				"name":            name,
 				"min-available":   "",
@@ -225,8 +209,7 @@ func TestPodDisruptionBudgetV2Generate(t *testing.T) {
 				},
 			},
 		},
-		{
-			name: "test-missing-name-param",
+		"test-missing-name-param": {
 			params: map[string]interface{}{
 				"min-available":   "",
 				"max-unavailable": "",
@@ -234,8 +217,7 @@ func TestPodDisruptionBudgetV2Generate(t *testing.T) {
 			},
 			expectErrMsg: "Parameter: name is required",
 		},
-		{
-			name: "test-blank-name-param",
+		"test-blank-name-param": {
 			params: map[string]interface{}{
 				"name":            "",
 				"min-available":   "",
@@ -244,8 +226,7 @@ func TestPodDisruptionBudgetV2Generate(t *testing.T) {
 			},
 			expectErrMsg: "Parameter: name is required",
 		},
-		{
-			name: "test-invalid-name-param",
+		"test-invalid-name-param": {
 			params: map[string]interface{}{
 				"name":            1,
 				"min-available":   "",
@@ -254,8 +235,7 @@ func TestPodDisruptionBudgetV2Generate(t *testing.T) {
 			},
 			expectErrMsg: "expected string, found int for 'name'",
 		},
-		{
-			name: "test-missing-min-available-param",
+		"test-missing-min-available-param": {
 			params: map[string]interface{}{
 				"name":            name,
 				"max-unavailable": "",
@@ -263,8 +243,7 @@ func TestPodDisruptionBudgetV2Generate(t *testing.T) {
 			},
 			expectErrMsg: "expected string, found <nil> for 'min-available'",
 		},
-		{
-			name: "test-invalid-min-available-param",
+		"test-invalid-min-available-param": {
 			params: map[string]interface{}{
 				"name":            name,
 				"min-available":   1,
@@ -273,8 +252,7 @@ func TestPodDisruptionBudgetV2Generate(t *testing.T) {
 			},
 			expectErrMsg: "expected string, found int for 'min-available'",
 		},
-		{
-			name: "test-missing-max-available-param",
+		"test-missing-max-available-param": {
 			params: map[string]interface{}{
 				"name":          name,
 				"min-available": "",
@@ -282,8 +260,7 @@ func TestPodDisruptionBudgetV2Generate(t *testing.T) {
 			},
 			expectErrMsg: "expected string, found <nil> for 'max-unavailable'",
 		},
-		{
-			name: "test-invalid-max-available-param",
+		"test-invalid-max-available-param": {
 			params: map[string]interface{}{
 				"name":            name,
 				"min-available":   "",
@@ -292,8 +269,7 @@ func TestPodDisruptionBudgetV2Generate(t *testing.T) {
 			},
 			expectErrMsg: "expected string, found int for 'max-unavailable'",
 		},
-		{
-			name: "test-blank-min-available-max-unavailable-param",
+		"test-blank-min-available-max-unavailable-param": {
 			params: map[string]interface{}{
 				"name":            name,
 				"min-available":   "",
@@ -302,8 +278,7 @@ func TestPodDisruptionBudgetV2Generate(t *testing.T) {
 			},
 			expectErrMsg: "one of min-available or max-unavailable must be specified",
 		},
-		{
-			name: "test-min-available-max-unavailable-param",
+		"test-min-available-max-unavailable-param": {
 			params: map[string]interface{}{
 				"name":            name,
 				"min-available":   minAvailable,
@@ -312,8 +287,7 @@ func TestPodDisruptionBudgetV2Generate(t *testing.T) {
 			},
 			expectErrMsg: "min-available and max-unavailable cannot be both specified",
 		},
-		{
-			name: "test-missing-selector-param",
+		"test-missing-selector-param": {
 			params: map[string]interface{}{
 				"name":            name,
 				"min-available":   "",
@@ -321,8 +295,7 @@ func TestPodDisruptionBudgetV2Generate(t *testing.T) {
 			},
 			expectErrMsg: "Parameter: selector is required",
 		},
-		{
-			name: "test-blank-selector-param",
+		"test-blank-selector-param": {
 			params: map[string]interface{}{
 				"name":            name,
 				"min-available":   "",
@@ -331,8 +304,7 @@ func TestPodDisruptionBudgetV2Generate(t *testing.T) {
 			},
 			expectErrMsg: "Parameter: selector is required",
 		},
-		{
-			name: "test-invalid-selector-param",
+		"test-invalid-selector-param": {
 			params: map[string]interface{}{
 				"name":            name,
 				"min-available":   "",
@@ -344,25 +316,23 @@ func TestPodDisruptionBudgetV2Generate(t *testing.T) {
 	}
 
 	generator := PodDisruptionBudgetV2Generator{}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			obj, err := generator.Generate(tt.params)
-			switch {
-			case tt.expectErrMsg != "" && err != nil:
-				if err.Error() != tt.expectErrMsg {
-					t.Errorf("test '%s': expect error '%s', but saw '%s'", tt.name, tt.expectErrMsg, err.Error())
-				}
-				return
-			case tt.expectErrMsg != "" && err == nil:
-				t.Errorf("test '%s': expected error '%s' and didn't get one", tt.name, tt.expectErrMsg)
-				return
-			case tt.expectErrMsg == "" && err != nil:
-				t.Errorf("test '%s': unexpected error %s", tt.name, err.Error())
-				return
+	for name, test := range tests {
+		obj, err := generator.Generate(test.params)
+		switch {
+		case test.expectErrMsg != "" && err != nil:
+			if err.Error() != test.expectErrMsg {
+				t.Errorf("test '%s': expect error '%s', but saw '%s'", name, test.expectErrMsg, err.Error())
 			}
-			if !reflect.DeepEqual(obj.(*policy.PodDisruptionBudget), tt.expectPDB) {
-				t.Errorf("test '%s': expected:\n%#v\nsaw:\n%#v", tt.name, tt.expectPDB, obj.(*policy.PodDisruptionBudget))
-			}
-		})
+			continue
+		case test.expectErrMsg != "" && err == nil:
+			t.Errorf("test '%s': expected error '%s' and didn't get one", name, test.expectErrMsg)
+			continue
+		case test.expectErrMsg == "" && err != nil:
+			t.Errorf("test '%s': unexpected error %s", name, err.Error())
+			continue
+		}
+		if !reflect.DeepEqual(obj.(*policy.PodDisruptionBudget), test.expectPDB) {
+			t.Errorf("test '%s': expected:\n%#v\nsaw:\n%#v", name, test.expectPDB, obj.(*policy.PodDisruptionBudget))
+		}
 	}
 }

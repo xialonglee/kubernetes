@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
 # Copyright 2015 The Kubernetes Authors.
 #
@@ -38,18 +38,17 @@ if [[ "${KUBERNETES_PROVIDER:-}" == "gke" ]]; then
   INSTANCE_PREFIX="${INSTANCE_PREFIX:0:26}"
 fi
 
-# Usage: gcloud-list <group> <resource> <additional parameters to gcloud...>
+# Usage: gcloud-compute-list <resource> <additional parameters to gcloud...>
 # GREP_REGEX is applied to the output of gcloud if set
 GREP_REGEX=""
-function gcloud-list() {
-  local -r group=$1
-  local -r resource=$2
-  local -r filter=${3:-}
-  echo -e "\n\n[ ${group} ${resource} ]"
+function gcloud-compute-list() {
+  local -r resource=$1
+  local -r filter=${2:-}
+  echo -e "\n\n[ ${resource} ]"
   local attempt=1
   local result=""
   while true; do
-    if result=$(gcloud ${group} ${resource} list --project=${PROJECT} ${filter:+--filter="$filter"} ${@:4}); then
+    if result=$(gcloud compute ${resource} list --project=${PROJECT} ${filter:+--filter="$filter"} ${@:3}); then
       if [[ ! -z "${GREP_REGEX}" ]]; then
         result=$(echo "${result}" | grep "${GREP_REGEX}" || true)
       fi
@@ -58,7 +57,7 @@ function gcloud-list() {
     fi
     echo -e "Attempt ${attempt} failed to list ${resource}. Retrying." >&2
     attempt=$(($attempt+1))
-    if [[ ${attempt} -gt 5 ]]; then
+    if [[ ${attempt} > 5 ]]; then
       echo -e "List ${resource} failed!" >&2
       exit 2
     fi
@@ -75,23 +74,21 @@ echo "Provider: ${KUBERNETES_PROVIDER:-}"
 
 # List resources related to instances, filtering by the instance prefix if
 # provided.
-gcloud-list compute instance-templates "name ~ '${INSTANCE_PREFIX}.*'"
-gcloud-list compute instance-groups "${ZONE:+"zone:(${ZONE}) AND "}name ~ '${INSTANCE_PREFIX}.*'"
-gcloud-list compute instances "${ZONE:+"zone:(${ZONE}) AND "}name ~ '${INSTANCE_PREFIX}.*'"
+gcloud-compute-list instance-templates "name ~ '${INSTANCE_PREFIX}.*'"
+gcloud-compute-list instance-groups "${ZONE:+"zone:(${ZONE}) AND "}name ~ '${INSTANCE_PREFIX}.*'"
+gcloud-compute-list instances "${ZONE:+"zone:(${ZONE}) AND "}name ~ '${INSTANCE_PREFIX}.*'"
 
 # List disk resources, filtering by instance prefix if provided.
-gcloud-list compute disks "${ZONE:+"zone:(${ZONE}) AND "}name ~ '${INSTANCE_PREFIX}.*'"
+gcloud-compute-list disks "${ZONE:+"zone:(${ZONE}) AND "}name ~ '${INSTANCE_PREFIX}.*'"
 
 # List network resources. We include names starting with "a", corresponding to
 # those that Kubernetes creates.
-gcloud-list compute addresses "${REGION:+"region=(${REGION}) AND "}name ~ 'a.*|${INSTANCE_PREFIX}.*'"
+gcloud-compute-list addresses "${REGION:+"region=(${REGION}) AND "}name ~ 'a.*|${INSTANCE_PREFIX}.*'"
 # Match either the header or a line with the specified e2e network.
 # This assumes that the network name is the second field in the output.
 GREP_REGEX="^NAME\|^[^ ]\+[ ]\+\(default\|${NETWORK}\) "
-gcloud-list compute routes "name ~ 'default.*|${INSTANCE_PREFIX}.*'"
-gcloud-list compute firewall-rules "name ~ 'default.*|k8s-fw.*|${INSTANCE_PREFIX}.*'"
+gcloud-compute-list routes "name ~ 'default.*|${INSTANCE_PREFIX}.*'"
+gcloud-compute-list firewall-rules "name ~ 'default.*|k8s-fw.*|${INSTANCE_PREFIX}.*'"
 GREP_REGEX=""
-gcloud-list compute forwarding-rules ${REGION:+"region=(${REGION})"}
-gcloud-list compute target-pools ${REGION:+"region=(${REGION})"}
-
-gcloud-list logging sinks
+gcloud-compute-list forwarding-rules ${REGION:+"region=(${REGION})"}
+gcloud-compute-list target-pools ${REGION:+"region=(${REGION})"}

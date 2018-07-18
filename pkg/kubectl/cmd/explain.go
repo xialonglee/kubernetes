@@ -18,28 +18,27 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 
 	"github.com/spf13/cobra"
 
-	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/kubernetes/pkg/kubectl/cmd/templates"
 	cmdutil "k8s.io/kubernetes/pkg/kubectl/cmd/util"
-	"k8s.io/kubernetes/pkg/kubectl/cmd/util/openapi"
 	"k8s.io/kubernetes/pkg/kubectl/explain"
-	"k8s.io/kubernetes/pkg/kubectl/genericclioptions"
+	"k8s.io/kubernetes/pkg/kubectl/scheme"
 	"k8s.io/kubernetes/pkg/kubectl/util/i18n"
 )
 
 var (
 	explainLong = templates.LongDesc(`
 		List the fields for supported resources
-
+		
 		This command describes the fields associated with each supported API resource.
-		Fields are identified via a simple JSONPath identifier:
-
+		Fields are identified via a simple JSONPath identifier: 
+		
 			<type>.<fieldName>[.<fieldName>]
-
+			
 		Add the --recursive flag to display all of the fields at once without descriptions.
 		Information about each field is retrieved from the server in OpenAPI format.`)
 
@@ -51,79 +50,43 @@ var (
 		kubectl explain pods.spec.containers`))
 )
 
-type ExplainOptions struct {
-	genericclioptions.IOStreams
-
-	CmdParent  string
-	ApiVersion string
-	Recursive  bool
-
-	Mapper meta.RESTMapper
-	Schema openapi.Resources
-}
-
-func NewExplainOptions(parent string, streams genericclioptions.IOStreams) *ExplainOptions {
-	return &ExplainOptions{
-		IOStreams: streams,
-		CmdParent: parent,
-	}
-}
-
 // NewCmdExplain returns a cobra command for swagger docs
-func NewCmdExplain(parent string, f cmdutil.Factory, streams genericclioptions.IOStreams) *cobra.Command {
-	o := NewExplainOptions(parent, streams)
-
+func NewCmdExplain(f cmdutil.Factory, out, cmdErr io.Writer) *cobra.Command {
 	cmd := &cobra.Command{
-		Use: "explain RESOURCE",
-		DisableFlagsInUseLine: true,
+		Use:     "explain RESOURCE",
 		Short:   i18n.T("Documentation of resources"),
-		Long:    explainLong + "\n\n" + cmdutil.SuggestApiResources(parent),
+		Long:    explainLong + "\n\n" + cmdutil.ValidResourceTypeList(f),
 		Example: explainExamples,
 		Run: func(cmd *cobra.Command, args []string) {
-			cmdutil.CheckErr(o.Complete(f, cmd))
-			cmdutil.CheckErr(o.Validate(args))
-			cmdutil.CheckErr(o.Run(args))
+			err := RunExplain(f, out, cmdErr, cmd, args)
+			cmdutil.CheckErr(err)
 		},
 	}
-	cmd.Flags().BoolVar(&o.Recursive, "recursive", o.Recursive, "Print the fields of fields (Currently only 1 level deep)")
-	cmd.Flags().StringVar(&o.ApiVersion, "api-version", o.ApiVersion, "Get different explanations for particular API version")
+	cmd.Flags().Bool("recursive", false, "Print the fields of fields (Currently only 1 level deep)")
+	cmd.Flags().String("api-version", "", "Get different explanations for particular API version")
+	cmdutil.AddInclude3rdPartyFlags(cmd)
 	return cmd
 }
 
-func (o *ExplainOptions) Complete(f cmdutil.Factory, cmd *cobra.Command) error {
-	var err error
-	o.Mapper, err = f.ToRESTMapper()
-	if err != nil {
-		return err
-	}
-
-	o.Schema, err = f.OpenAPISchema()
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func (o *ExplainOptions) Validate(args []string) error {
+// RunExplain executes the appropriate steps to print a model's documentation
+func RunExplain(f cmdutil.Factory, out, cmdErr io.Writer, cmd *cobra.Command, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("You must specify the type of resource to explain. %s\n", cmdutil.SuggestApiResources(o.CmdParent))
+		fmt.Fprintf(cmdErr, "You must specify the type of resource to explain. %s\n", cmdutil.ValidResourceTypeList(f))
+		return cmdutil.UsageErrorf(cmd, "Required resource not specified.")
 	}
 	if len(args) > 1 {
-		return fmt.Errorf("We accept only this format: explain RESOURCE\n")
+		return cmdutil.UsageErrorf(cmd, "We accept only this format: explain RESOURCE")
 	}
 
-	return nil
-}
+	recursive := cmdutil.GetFlagBool(cmd, "recursive")
+	apiVersionString := cmdutil.GetFlagString(cmd, "api-version")
+	apiVersion := schema.GroupVersion{}
 
-// Run executes the appropriate steps to print a model's documentation
-func (o *ExplainOptions) Run(args []string) error {
-	recursive := o.Recursive
-	apiVersionString := o.ApiVersion
-
+	mapper, _ := f.Object()
 	// TODO: After we figured out the new syntax to separate group and resource, allow
 	// the users to use it in explain (kubectl explain <group><syntax><resource>).
 	// Refer to issue #16039 for why we do this. Refer to PR #15808 that used "/" syntax.
-	inModel, fieldsPath, err := explain.SplitAndParseResourceRequest(args[0], o.Mapper)
+	inModel, fieldsPath, err := explain.SplitAndParseResourceRequest(args[0], mapper)
 	if err != nil {
 		return err
 	}
@@ -132,27 +95,39 @@ func (o *ExplainOptions) Run(args []string) error {
 	fullySpecifiedGVR, groupResource := schema.ParseResourceArg(inModel)
 	gvk := schema.GroupVersionKind{}
 	if fullySpecifiedGVR != nil {
-		gvk, _ = o.Mapper.KindFor(*fullySpecifiedGVR)
+		gvk, _ = mapper.KindFor(*fullySpecifiedGVR)
 	}
 	if gvk.Empty() {
-		gvk, err = o.Mapper.KindFor(groupResource.WithVersion(""))
+		gvk, err = mapper.KindFor(groupResource.WithVersion(""))
 		if err != nil {
 			return err
 		}
 	}
 
-	if len(apiVersionString) != 0 {
-		apiVersion, err := schema.ParseGroupVersion(apiVersionString)
+	if len(apiVersionString) == 0 {
+		groupMeta, err := scheme.Registry.Group(gvk.Group)
 		if err != nil {
 			return err
 		}
-		gvk = apiVersion.WithKind(gvk.Kind)
+		apiVersion = groupMeta.GroupVersion
+
+	} else {
+		apiVersion, err = schema.ParseGroupVersion(apiVersionString)
+		if err != nil {
+			return err
+		}
+	}
+	gvk = apiVersion.WithKind(gvk.Kind)
+
+	resources, err := f.OpenAPISchema()
+	if err != nil {
+		return err
 	}
 
-	schema := o.Schema.LookupResource(gvk)
+	schema := resources.LookupResource(gvk)
 	if schema == nil {
 		return fmt.Errorf("Couldn't find resource for %q", gvk)
 	}
 
-	return explain.PrintModelDescription(fieldsPath, o.Out, schema, gvk, recursive)
+	return explain.PrintModelDescription(fieldsPath, out, schema, recursive)
 }

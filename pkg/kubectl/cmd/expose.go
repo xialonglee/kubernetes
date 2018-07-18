@@ -17,27 +17,18 @@ limitations under the License.
 package cmd
 
 import (
+	"io"
 	"regexp"
 	"strings"
 
-	"github.com/golang/glog"
 	"github.com/spf13/cobra"
 
-	"k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured/unstructuredscheme"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation"
-	"k8s.io/client-go/dynamic"
-	"k8s.io/kubernetes/pkg/api/legacyscheme"
 	"k8s.io/kubernetes/pkg/kubectl"
 	"k8s.io/kubernetes/pkg/kubectl/cmd/templates"
 	cmdutil "k8s.io/kubernetes/pkg/kubectl/cmd/util"
-	"k8s.io/kubernetes/pkg/kubectl/genericclioptions"
-	"k8s.io/kubernetes/pkg/kubectl/genericclioptions/printers"
-	"k8s.io/kubernetes/pkg/kubectl/genericclioptions/resource"
-	"k8s.io/kubernetes/pkg/kubectl/polymorphichelpers"
-	"k8s.io/kubernetes/pkg/kubectl/scheme"
+	"k8s.io/kubernetes/pkg/kubectl/resource"
 	"k8s.io/kubernetes/pkg/kubectl/util/i18n"
 )
 
@@ -81,72 +72,34 @@ var (
 		kubectl expose deployment nginx --port=80 --target-port=8000`))
 )
 
-type ExposeServiceOptions struct {
-	FilenameOptions resource.FilenameOptions
-	RecordFlags     *genericclioptions.RecordFlags
-	PrintFlags      *genericclioptions.PrintFlags
-	PrintObj        printers.ResourcePrinterFunc
+func NewCmdExposeService(f cmdutil.Factory, out io.Writer) *cobra.Command {
+	options := &resource.FilenameOptions{}
 
-	DryRun           bool
-	EnforceNamespace bool
-
-	Generators                func(string) map[string]kubectl.Generator
-	CanBeExposed              polymorphichelpers.CanBeExposedFunc
-	ClientForMapping          func(*meta.RESTMapping) (resource.RESTClient, error)
-	MapBasedSelectorForObject func(runtime.Object) (string, error)
-	PortsForObject            polymorphichelpers.PortsForObjectFunc
-	ProtocolsForObject        func(runtime.Object) (map[string]string, error)
-
-	Namespace string
-	Mapper    meta.RESTMapper
-
-	DynamicClient dynamic.Interface
-	Builder       *resource.Builder
-
-	Recorder genericclioptions.Recorder
-	genericclioptions.IOStreams
-}
-
-func NewExposeServiceOptions(ioStreams genericclioptions.IOStreams) *ExposeServiceOptions {
-	return &ExposeServiceOptions{
-		RecordFlags: genericclioptions.NewRecordFlags(),
-		PrintFlags:  genericclioptions.NewPrintFlags("exposed").WithTypeSetter(scheme.Scheme),
-
-		Recorder:  genericclioptions.NoopRecorder{},
-		IOStreams: ioStreams,
-	}
-}
-
-func NewCmdExposeService(f cmdutil.Factory, streams genericclioptions.IOStreams) *cobra.Command {
-	o := NewExposeServiceOptions(streams)
-
-	validArgs := []string{}
+	validArgs, argAliases := []string{}, []string{}
 	resources := regexp.MustCompile(`\s*,`).Split(exposeResources, -1)
 	for _, r := range resources {
 		validArgs = append(validArgs, strings.Fields(r)[0])
+		argAliases = kubectl.ResourceAliases(validArgs)
 	}
 
 	cmd := &cobra.Command{
-		Use: "expose (-f FILENAME | TYPE NAME) [--port=port] [--protocol=TCP|UDP] [--target-port=number-or-name] [--name=name] [--external-ip=external-ip-of-service] [--type=type]",
-		DisableFlagsInUseLine: true,
+		Use:     "expose (-f FILENAME | TYPE NAME) [--port=port] [--protocol=TCP|UDP] [--target-port=number-or-name] [--name=name] [--external-ip=external-ip-of-service] [--type=type]",
 		Short:   i18n.T("Take a replication controller, service, deployment or pod and expose it as a new Kubernetes Service"),
 		Long:    exposeLong,
 		Example: exposeExample,
 		Run: func(cmd *cobra.Command, args []string) {
-			cmdutil.CheckErr(o.Complete(f, cmd))
-			cmdutil.CheckErr(o.RunExpose(cmd, args))
+			err := RunExpose(f, out, cmd, args, options)
+			cmdutil.CheckErr(err)
 		},
-		ValidArgs: validArgs,
+		ValidArgs:  validArgs,
+		ArgAliases: argAliases,
 	}
-
-	o.RecordFlags.AddFlags(cmd)
-	o.PrintFlags.AddFlags(cmd)
-
+	cmdutil.AddPrinterFlags(cmd)
 	cmd.Flags().String("generator", "service/v2", i18n.T("The name of the API generator to use. There are 2 generators: 'service/v1' and 'service/v2'. The only difference between them is that service port in v1 is named 'default', while it is left unnamed in v2. Default is 'service/v2'."))
 	cmd.Flags().String("protocol", "", i18n.T("The network protocol for the service to be created. Default is 'TCP'."))
 	cmd.Flags().String("port", "", i18n.T("The port that the service should serve on. Copied from the resource being exposed, if unspecified"))
 	cmd.Flags().String("type", "", i18n.T("Type for this service: ClusterIP, NodePort, LoadBalancer, or ExternalName. Default is 'ClusterIP'."))
-	cmd.Flags().String("load-balancer-ip", "", i18n.T("IP to assign to the LoadBalancer. If empty, an ephemeral IP will be created and used (cloud-provider specific)."))
+	cmd.Flags().String("load-balancer-ip", "", i18n.T("IP to assign to the Load Balancer. If empty, an ephemeral IP will be created and used (cloud-provider specific)."))
 	cmd.Flags().String("selector", "", i18n.T("A label selector to use for this service. Only equality-based selector requirements are supported. If empty (the default) infer the selector from the replication controller or replica set.)"))
 	cmd.Flags().StringP("labels", "l", "", "Labels to apply to the service created by this call.")
 	cmd.Flags().String("container-port", "", i18n.T("Synonym for --target-port"))
@@ -159,73 +112,36 @@ func NewCmdExposeService(f cmdutil.Factory, streams genericclioptions.IOStreams)
 	cmd.Flags().String("cluster-ip", "", i18n.T("ClusterIP to be assigned to the service. Leave empty to auto-allocate, or set to 'None' to create a headless service."))
 
 	usage := "identifying the resource to expose a service"
-	cmdutil.AddFilenameOptionFlags(cmd, &o.FilenameOptions, usage)
+	cmdutil.AddFilenameOptionFlags(cmd, options, usage)
 	cmdutil.AddDryRunFlag(cmd)
 	cmdutil.AddApplyAnnotationFlags(cmd)
+	cmdutil.AddRecordFlag(cmd)
 	return cmd
 }
 
-func (o *ExposeServiceOptions) Complete(f cmdutil.Factory, cmd *cobra.Command) error {
-	o.DryRun = cmdutil.GetDryRunFlag(cmd)
-
-	if o.DryRun {
-		o.PrintFlags.Complete("%s (dry run)")
-	}
-	printer, err := o.PrintFlags.ToPrinter()
-	if err != nil {
-		return err
-	}
-	o.PrintObj = printer.PrintObj
-
-	o.RecordFlags.Complete(cmd)
-	o.Recorder, err = o.RecordFlags.ToRecorder()
+func RunExpose(f cmdutil.Factory, out io.Writer, cmd *cobra.Command, args []string, options *resource.FilenameOptions) error {
+	namespace, enforceNamespace, err := f.DefaultNamespace()
 	if err != nil {
 		return err
 	}
 
-	o.DynamicClient, err = f.DynamicClient()
-	if err != nil {
-		return err
-	}
-
-	o.Generators = cmdutil.GeneratorFn
-	o.Builder = f.NewBuilder()
-	o.CanBeExposed = polymorphichelpers.CanBeExposedFn
-	o.ClientForMapping = f.ClientForMapping
-	o.MapBasedSelectorForObject = polymorphichelpers.MapBasedSelectorForObjectFn
-	o.ProtocolsForObject = polymorphichelpers.ProtocolsForObjectFn
-	o.PortsForObject = polymorphichelpers.PortsForObjectFn
-
-	o.Mapper, err = f.ToRESTMapper()
-	if err != nil {
-		return err
-	}
-
-	o.Namespace, o.EnforceNamespace, err = f.ToRawKubeConfigLoader().Namespace()
-	if err != nil {
-		return err
-	}
-
-	return err
-}
-
-func (o *ExposeServiceOptions) RunExpose(cmd *cobra.Command, args []string) error {
-	r := o.Builder.
-		WithScheme(legacyscheme.Scheme).
+	mapper, typer := f.Object()
+	r := f.NewBuilder().
+		Internal().
 		ContinueOnError().
-		NamespaceParam(o.Namespace).DefaultNamespace().
-		FilenameParam(o.EnforceNamespace, &o.FilenameOptions).
+		NamespaceParam(namespace).DefaultNamespace().
+		FilenameParam(enforceNamespace, options).
 		ResourceTypeOrNameArgs(false, args...).
 		Flatten().
 		Do()
-	err := r.Err()
+	err = r.Err()
 	if err != nil {
 		return cmdutil.UsageErrorf(cmd, err.Error())
 	}
 
 	// Get the generator, setup and validate all required parameters
 	generatorName := cmdutil.GetFlagString(cmd, "generator")
-	generators := o.Generators("expose")
+	generators := f.Generators("expose")
 	generator, found := generators[generatorName]
 	if !found {
 		return cmdutil.UsageErrorf(cmd, "generator %q not found.", generatorName)
@@ -238,7 +154,7 @@ func (o *ExposeServiceOptions) RunExpose(cmd *cobra.Command, args []string) erro
 		}
 
 		mapping := info.ResourceMapping()
-		if err := o.CanBeExposed(mapping.GroupVersionKind.GroupKind()); err != nil {
+		if err := f.CanBeExposed(mapping.GroupVersionKind.GroupKind()); err != nil {
 			return err
 		}
 
@@ -252,7 +168,7 @@ func (o *ExposeServiceOptions) RunExpose(cmd *cobra.Command, args []string) erro
 		// For objects that need a pod selector, derive it from the exposed object in case a user
 		// didn't explicitly specify one via --selector
 		if s, found := params["selector"]; found && kubectl.IsZero(s) {
-			s, err := o.MapBasedSelectorForObject(info.Object)
+			s, err := f.MapBasedSelectorForObject(info.Object)
 			if err != nil {
 				return cmdutil.UsageErrorf(cmd, "couldn't retrieve selectors via --selector flag or introspection: %v", err)
 			}
@@ -264,7 +180,7 @@ func (o *ExposeServiceOptions) RunExpose(cmd *cobra.Command, args []string) erro
 		// For objects that need a port, derive it from the exposed object in case a user
 		// didn't explicitly specify one via --port
 		if port, found := params["port"]; found && kubectl.IsZero(port) {
-			ports, err := o.PortsForObject(info.Object)
+			ports, err := f.PortsForObject(info.Object)
 			if err != nil {
 				return cmdutil.UsageErrorf(cmd, "couldn't find port via --port flag or introspection: %v", err)
 			}
@@ -283,7 +199,7 @@ func (o *ExposeServiceOptions) RunExpose(cmd *cobra.Command, args []string) erro
 		// Always try to derive protocols from the exposed object, may use
 		// different protocols for different ports.
 		if _, found := params["protocol"]; found {
-			protocolsMap, err := o.ProtocolsForObject(info.Object)
+			protocolsMap, err := f.ProtocolsForObject(info.Object)
 			if err != nil {
 				return cmdutil.UsageErrorf(cmd, "couldn't find protocol via introspection: %v", err)
 			}
@@ -293,7 +209,7 @@ func (o *ExposeServiceOptions) RunExpose(cmd *cobra.Command, args []string) erro
 		}
 
 		if kubectl.IsZero(params["labels"]) {
-			labels, err := meta.NewAccessor().Labels(info.Object)
+			labels, err := f.LabelsForObject(info.Object)
 			if err != nil {
 				return err
 			}
@@ -314,43 +230,52 @@ func (o *ExposeServiceOptions) RunExpose(cmd *cobra.Command, args []string) erro
 		}
 
 		if inline := cmdutil.GetFlagString(cmd, "overrides"); len(inline) > 0 {
-			codec := runtime.NewCodec(cmdutil.InternalVersionJSONEncoder(), cmdutil.InternalVersionDecoder())
+			codec := runtime.NewCodec(f.JSONEncoder(), f.Decoder(true))
 			object, err = cmdutil.Merge(codec, object, inline)
 			if err != nil {
 				return err
 			}
 		}
 
-		if err := o.Recorder.Record(object); err != nil {
-			glog.V(4).Infof("error recording current command: %v", err)
+		resourceMapper := &resource.Mapper{
+			ObjectTyper:  typer,
+			RESTMapper:   mapper,
+			ClientMapper: resource.ClientMapperFunc(f.ClientForMapping),
+			Decoder:      f.Decoder(true),
 		}
-
-		if o.DryRun {
-			return o.PrintObj(object, o.Out)
-		}
-		if err := kubectl.CreateOrUpdateAnnotation(cmdutil.GetFlagBool(cmd, cmdutil.ApplyAnnotationsFlag), object, cmdutil.InternalVersionJSONEncoder()); err != nil {
-			return err
-		}
-
-		asUnstructured := &unstructured.Unstructured{}
-		if err := legacyscheme.Scheme.Convert(object, asUnstructured, nil); err != nil {
-			return err
-		}
-		gvks, _, err := unstructuredscheme.NewUnstructuredObjectTyper().ObjectKinds(asUnstructured)
+		info, err = resourceMapper.InfoForObject(object, nil)
 		if err != nil {
 			return err
 		}
-		objMapping, err := o.Mapper.RESTMapping(gvks[0].GroupKind(), gvks[0].Version)
-		if err != nil {
+		if cmdutil.ShouldRecord(cmd, info) {
+			if err := cmdutil.RecordChangeCause(object, f.Command(cmd, false)); err != nil {
+				return err
+			}
+		}
+		info.Refresh(object, true)
+		if cmdutil.GetDryRunFlag(cmd) {
+			if len(cmdutil.GetFlagString(cmd, "output")) > 0 {
+				return f.PrintObject(cmd, false, mapper, object, out)
+			}
+			f.PrintSuccess(mapper, false, out, info.Mapping.Resource, info.Name, true, "exposed")
+			return nil
+		}
+		if err := kubectl.CreateOrUpdateAnnotation(cmdutil.GetFlagBool(cmd, cmdutil.ApplyAnnotationsFlag), info, f.JSONEncoder()); err != nil {
 			return err
 		}
+
 		// Serialize the object with the annotation applied.
-		actualObject, err := o.DynamicClient.Resource(objMapping.Resource).Namespace(o.Namespace).Create(asUnstructured)
+		object, err = resource.NewHelper(info.Client, info.Mapping).Create(namespace, false, object)
 		if err != nil {
 			return err
 		}
 
-		return o.PrintObj(actualObject, o.Out)
+		if len(cmdutil.GetFlagString(cmd, "output")) > 0 {
+			return f.PrintObject(cmd, false, mapper, object, out)
+		}
+
+		f.PrintSuccess(mapper, false, out, info.Mapping.Resource, info.Name, false, "exposed")
+		return nil
 	})
 	if err != nil {
 		return err

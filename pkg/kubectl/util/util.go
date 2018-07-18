@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"path"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -61,7 +60,7 @@ func ParseFileSource(source string) (keyName, filePath string, err error) {
 	numSeparators := strings.Count(source, "=")
 	switch {
 	case numSeparators == 0:
-		return path.Base(filepath.ToSlash(source)), source, nil
+		return path.Base(source), source, nil
 	case numSeparators == 1 && strings.HasPrefix(source, "="):
 		return "", "", fmt.Errorf("key name for file path %v missing.", strings.TrimPrefix(source, "="))
 	case numSeparators == 1 && strings.HasSuffix(source, "="):

@@ -132,7 +132,9 @@ func (idr *InitDryRunGetter) handleGetNode(action core.GetAction) (bool, runtime
 			Labels: map[string]string{
 				"kubernetes.io/hostname": idr.masterName,
 			},
-			Annotations: map[string]string{},
+		},
+		Spec: v1.NodeSpec{
+			ExternalID: idr.masterName,
 		},
 	}, nil
 }

@@ -18,15 +18,14 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"sort"
 
 	"github.com/spf13/cobra"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/discovery"
 	"k8s.io/kubernetes/pkg/kubectl/cmd/templates"
 	cmdutil "k8s.io/kubernetes/pkg/kubectl/cmd/util"
-	"k8s.io/kubernetes/pkg/kubectl/genericclioptions"
 	"k8s.io/kubernetes/pkg/kubectl/util/i18n"
 )
 
@@ -36,54 +35,37 @@ var (
 		kubectl api-versions`))
 )
 
-type ApiVersionsOptions struct {
-	discoveryClient discovery.CachedDiscoveryInterface
-
-	genericclioptions.IOStreams
-}
-
-func NewApiVersionsOptions(ioStreams genericclioptions.IOStreams) *ApiVersionsOptions {
-	return &ApiVersionsOptions{
-		IOStreams: ioStreams,
-	}
-}
-
-func NewCmdApiVersions(f cmdutil.Factory, ioStreams genericclioptions.IOStreams) *cobra.Command {
-	o := NewApiVersionsOptions(ioStreams)
+func NewCmdApiVersions(f cmdutil.Factory, out io.Writer) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "api-versions",
 		Short:   "Print the supported API versions on the server, in the form of \"group/version\"",
 		Long:    "Print the supported API versions on the server, in the form of \"group/version\"",
 		Example: apiversionsExample,
 		Run: func(cmd *cobra.Command, args []string) {
-			cmdutil.CheckErr(o.Complete(f))
-			cmdutil.CheckErr(o.RunApiVersions())
+			err := RunApiVersions(f, out)
+			cmdutil.CheckErr(err)
 		},
 	}
 	return cmd
 }
 
-func (o *ApiVersionsOptions) Complete(f cmdutil.Factory) error {
-	var err error
-	o.discoveryClient, err = f.ToDiscoveryClient()
+func RunApiVersions(f cmdutil.Factory, w io.Writer) error {
+	discoveryclient, err := f.DiscoveryClient()
 	if err != nil {
 		return err
 	}
-	return nil
-}
 
-func (o *ApiVersionsOptions) RunApiVersions() error {
 	// Always request fresh data from the server
-	o.discoveryClient.Invalidate()
+	discoveryclient.Invalidate()
 
-	groupList, err := o.discoveryClient.ServerGroups()
+	groupList, err := discoveryclient.ServerGroups()
 	if err != nil {
 		return fmt.Errorf("Couldn't get available api versions from server: %v\n", err)
 	}
 	apiVersions := metav1.ExtractGroupVersions(groupList)
 	sort.Strings(apiVersions)
 	for _, v := range apiVersions {
-		fmt.Fprintln(o.Out, v)
+		fmt.Fprintln(w, v)
 	}
 	return nil
 }

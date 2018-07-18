@@ -17,10 +17,9 @@ limitations under the License.
 package plugins
 
 import (
+	"bytes"
 	"os"
 	"testing"
-
-	"k8s.io/kubernetes/pkg/kubectl/genericclioptions"
 )
 
 func TestExecRunner(t *testing.T) {
@@ -50,34 +49,33 @@ func TestExecRunner(t *testing.T) {
 	os.Setenv("KUBECTL_PLUGINS_TEST", "ok")
 	defer os.Unsetenv("KUBECTL_PLUGINS_TEST")
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			streams, _, outBuf, _ := genericclioptions.NewTestIOStreams()
+	for _, test := range tests {
+		outBuf := bytes.NewBuffer([]byte{})
 
-			plugin := &Plugin{
-				Description: Description{
-					Name:      tt.name,
-					ShortDesc: "Test Runner Plugin",
-					Command:   tt.command,
-				},
-			}
+		plugin := &Plugin{
+			Description: Description{
+				Name:      test.name,
+				ShortDesc: "Test Runner Plugin",
+				Command:   test.command,
+			},
+		}
 
-			ctx := RunningContext{
-				IOStreams:   streams,
-				WorkingDir:  ".",
-				EnvProvider: &EmptyEnvProvider{},
-			}
+		ctx := RunningContext{
+			Out:         outBuf,
+			WorkingDir:  ".",
+			EnvProvider: &EmptyEnvProvider{},
+		}
 
-			runner := &ExecPluginRunner{}
-			err := runner.Run(plugin, ctx)
+		runner := &ExecPluginRunner{}
+		err := runner.Run(plugin, ctx)
 
-			if outBuf.String() != tt.expectedMsg {
-				t.Errorf("%s: unexpected output: %q", tt.name, outBuf.String())
-			}
+		if outBuf.String() != test.expectedMsg {
+			t.Errorf("%s: unexpected output: %q", test.name, outBuf.String())
+		}
 
-			if err != nil && err.Error() != tt.expectedErr {
-				t.Errorf("%s: unexpected err output: %v", tt.name, err)
-			}
-		})
+		if err != nil && err.Error() != test.expectedErr {
+			t.Errorf("%s: unexpected err output: %v", test.name, err)
+		}
 	}
+
 }

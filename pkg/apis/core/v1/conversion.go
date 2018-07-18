@@ -154,7 +154,7 @@ func addConversionFuncs(scheme *runtime.Scheme) error {
 	}
 
 	// Add field conversion funcs.
-	err = scheme.AddFieldLabelConversionFunc(SchemeGroupVersion.WithKind("Pod"),
+	err = scheme.AddFieldLabelConversionFunc("v1", "Pod",
 		func(label, value string) (string, string, error) {
 			switch label {
 			case "metadata.name",
@@ -163,8 +163,7 @@ func addConversionFuncs(scheme *runtime.Scheme) error {
 				"spec.restartPolicy",
 				"spec.schedulerName",
 				"status.phase",
-				"status.podIP",
-				"status.nominatedNodeName":
+				"status.podIP":
 				return label, value, nil
 			// This is for backwards compatibility with old v1 clients which send spec.host
 			case "spec.host":
@@ -177,7 +176,7 @@ func addConversionFuncs(scheme *runtime.Scheme) error {
 	if err != nil {
 		return err
 	}
-	err = scheme.AddFieldLabelConversionFunc(SchemeGroupVersion.WithKind("Node"),
+	err = scheme.AddFieldLabelConversionFunc("v1", "Node",
 		func(label, value string) (string, string, error) {
 			switch label {
 			case "metadata.name":
@@ -192,7 +191,7 @@ func addConversionFuncs(scheme *runtime.Scheme) error {
 	if err != nil {
 		return err
 	}
-	err = scheme.AddFieldLabelConversionFunc(SchemeGroupVersion.WithKind("ReplicationController"),
+	err = scheme.AddFieldLabelConversionFunc("v1", "ReplicationController",
 		func(label, value string) (string, string, error) {
 			switch label {
 			case "metadata.name",
@@ -350,10 +349,6 @@ func Convert_core_PodTemplateSpec_To_v1_PodTemplateSpec(in *core.PodTemplateSpec
 		return err
 	}
 
-	// drop init container annotations so they don't take effect on legacy kubelets.
-	// remove this once the oldest supported kubelet no longer honors the annotations over the field.
-	out.Annotations = dropInitContainerAnnotations(out.Annotations)
-
 	return nil
 }
 
@@ -361,9 +356,6 @@ func Convert_v1_PodTemplateSpec_To_core_PodTemplateSpec(in *v1.PodTemplateSpec, 
 	if err := autoConvert_v1_PodTemplateSpec_To_core_PodTemplateSpec(in, out, s); err != nil {
 		return err
 	}
-
-	// drop init container annotations so they don't show up as differences when receiving requests from old clients
-	out.Annotations = dropInitContainerAnnotations(out.Annotations)
 
 	return nil
 }
@@ -384,7 +376,6 @@ func Convert_core_PodSpec_To_v1_PodSpec(in *core.PodSpec, out *v1.PodSpec, s con
 		out.HostPID = in.SecurityContext.HostPID
 		out.HostNetwork = in.SecurityContext.HostNetwork
 		out.HostIPC = in.SecurityContext.HostIPC
-		out.ShareProcessNamespace = in.SecurityContext.ShareProcessNamespace
 	}
 
 	return nil
@@ -409,18 +400,6 @@ func Convert_v1_PodSpec_To_core_PodSpec(in *v1.PodSpec, out *core.PodSpec, s con
 	out.SecurityContext.HostNetwork = in.HostNetwork
 	out.SecurityContext.HostPID = in.HostPID
 	out.SecurityContext.HostIPC = in.HostIPC
-	out.SecurityContext.ShareProcessNamespace = in.ShareProcessNamespace
-
-	return nil
-}
-
-func Convert_v1_Pod_To_core_Pod(in *v1.Pod, out *core.Pod, s conversion.Scope) error {
-	if err := autoConvert_v1_Pod_To_core_Pod(in, out, s); err != nil {
-		return err
-	}
-
-	// drop init container annotations so they don't show up as differences when receiving requests from old clients
-	out.Annotations = dropInitContainerAnnotations(out.Annotations)
 
 	return nil
 }
@@ -432,7 +411,17 @@ func Convert_core_Pod_To_v1_Pod(in *core.Pod, out *v1.Pod, s conversion.Scope) e
 
 	// drop init container annotations so they don't take effect on legacy kubelets.
 	// remove this once the oldest supported kubelet no longer honors the annotations over the field.
-	out.Annotations = dropInitContainerAnnotations(out.Annotations)
+	if len(out.Annotations) > 0 {
+		old := out.Annotations
+		out.Annotations = make(map[string]string, len(old))
+		for k, v := range old {
+			out.Annotations[k] = v
+		}
+		delete(out.Annotations, "pod.beta.kubernetes.io/init-containers")
+		delete(out.Annotations, "pod.alpha.kubernetes.io/init-containers")
+		delete(out.Annotations, "pod.beta.kubernetes.io/init-container-statuses")
+		delete(out.Annotations, "pod.alpha.kubernetes.io/init-container-statuses")
+	}
 
 	return nil
 }
@@ -454,7 +443,6 @@ func Convert_v1_Secret_To_core_Secret(in *v1.Secret, out *core.Secret, s convers
 
 	return nil
 }
-
 func Convert_core_SecurityContext_To_v1_SecurityContext(in *core.SecurityContext, out *v1.SecurityContext, s conversion.Scope) error {
 	if in.Capabilities != nil {
 		out.Capabilities = new(v1.Capabilities)
@@ -474,7 +462,6 @@ func Convert_core_SecurityContext_To_v1_SecurityContext(in *core.SecurityContext
 		out.SELinuxOptions = nil
 	}
 	out.RunAsUser = in.RunAsUser
-	out.RunAsGroup = in.RunAsGroup
 	out.RunAsNonRoot = in.RunAsNonRoot
 	out.ReadOnlyRootFilesystem = in.ReadOnlyRootFilesystem
 	out.AllowPrivilegeEscalation = in.AllowPrivilegeEscalation
@@ -492,17 +479,8 @@ func Convert_core_PodSecurityContext_To_v1_PodSecurityContext(in *core.PodSecuri
 		out.SELinuxOptions = nil
 	}
 	out.RunAsUser = in.RunAsUser
-	out.RunAsGroup = in.RunAsGroup
 	out.RunAsNonRoot = in.RunAsNonRoot
 	out.FSGroup = in.FSGroup
-	if in.Sysctls != nil {
-		out.Sysctls = make([]v1.Sysctl, len(in.Sysctls))
-		for i, sysctl := range in.Sysctls {
-			if err := Convert_core_Sysctl_To_v1_Sysctl(&sysctl, &out.Sysctls[i], s); err != nil {
-				return err
-			}
-		}
-	}
 	return nil
 }
 
@@ -517,18 +495,8 @@ func Convert_v1_PodSecurityContext_To_core_PodSecurityContext(in *v1.PodSecurity
 		out.SELinuxOptions = nil
 	}
 	out.RunAsUser = in.RunAsUser
-	out.RunAsGroup = in.RunAsGroup
 	out.RunAsNonRoot = in.RunAsNonRoot
 	out.FSGroup = in.FSGroup
-	if in.Sysctls != nil {
-		out.Sysctls = make([]core.Sysctl, len(in.Sysctls))
-		for i, sysctl := range in.Sysctls {
-			if err := Convert_v1_Sysctl_To_core_Sysctl(&sysctl, &out.Sysctls[i], s); err != nil {
-				return err
-			}
-		}
-	}
-
 	return nil
 }
 
@@ -553,7 +521,7 @@ func Convert_v1_ResourceList_To_core_ResourceList(in *v1.ResourceList, out *core
 }
 
 func AddFieldLabelConversionsForEvent(scheme *runtime.Scheme) error {
-	return scheme.AddFieldLabelConversionFunc(SchemeGroupVersion.WithKind("Event"),
+	return scheme.AddFieldLabelConversionFunc("v1", "Event",
 		func(label, value string) (string, string, error) {
 			switch label {
 			case "involvedObject.kind",
@@ -576,7 +544,7 @@ func AddFieldLabelConversionsForEvent(scheme *runtime.Scheme) error {
 }
 
 func AddFieldLabelConversionsForNamespace(scheme *runtime.Scheme) error {
-	return scheme.AddFieldLabelConversionFunc(SchemeGroupVersion.WithKind("Namespace"),
+	return scheme.AddFieldLabelConversionFunc("v1", "Namespace",
 		func(label, value string) (string, string, error) {
 			switch label {
 			case "status.phase",
@@ -589,7 +557,7 @@ func AddFieldLabelConversionsForNamespace(scheme *runtime.Scheme) error {
 }
 
 func AddFieldLabelConversionsForSecret(scheme *runtime.Scheme) error {
-	return scheme.AddFieldLabelConversionFunc(SchemeGroupVersion.WithKind("Secret"),
+	return scheme.AddFieldLabelConversionFunc("v1", "Secret",
 		func(label, value string) (string, string, error) {
 			switch label {
 			case "type",
@@ -600,41 +568,4 @@ func AddFieldLabelConversionsForSecret(scheme *runtime.Scheme) error {
 				return "", "", fmt.Errorf("field label not supported: %s", label)
 			}
 		})
-}
-
-var initContainerAnnotations = map[string]bool{
-	"pod.beta.kubernetes.io/init-containers":          true,
-	"pod.alpha.kubernetes.io/init-containers":         true,
-	"pod.beta.kubernetes.io/init-container-statuses":  true,
-	"pod.alpha.kubernetes.io/init-container-statuses": true,
-}
-
-// dropInitContainerAnnotations returns a copy of the annotations with init container annotations removed,
-// or the original annotations if no init container annotations were present.
-//
-// this can be removed once no clients prior to 1.8 are supported, and no kubelets prior to 1.8 can be run
-// (we don't support kubelets older than 2 versions skewed from the apiserver, but we don't prevent them, either)
-func dropInitContainerAnnotations(oldAnnotations map[string]string) map[string]string {
-	if len(oldAnnotations) == 0 {
-		return oldAnnotations
-	}
-
-	found := false
-	for k := range initContainerAnnotations {
-		if _, ok := oldAnnotations[k]; ok {
-			found = true
-			break
-		}
-	}
-	if !found {
-		return oldAnnotations
-	}
-
-	newAnnotations := make(map[string]string, len(oldAnnotations))
-	for k, v := range oldAnnotations {
-		if !initContainerAnnotations[k] {
-			newAnnotations[k] = v
-		}
-	}
-	return newAnnotations
 }

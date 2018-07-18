@@ -23,8 +23,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
-	"strings"
 	"time"
 
 	"github.com/golang/glog"
@@ -68,7 +66,7 @@ func CreateTestArchive(suite TestSuite, systemSpecName string) (string, error) {
 func RunRemote(suite TestSuite, archive string, host string, cleanup bool, imageDesc, junitFilePrefix string, testArgs string, ginkgoArgs string, systemSpecName string) (string, bool, error) {
 	// Create the temp staging directory
 	glog.V(2).Infof("Staging test binaries on %q", host)
-	workspace := newWorkspaceDir()
+	workspace := fmt.Sprintf("/tmp/node-e2e-%s", getTimestamp())
 	// Do not sudo here, so that we can use scp to copy test archive to the directdory.
 	if output, err := SSHNoSudo(host, "mkdir", workspace); err != nil {
 		// Exit failure with the error
@@ -128,33 +126,11 @@ func RunRemote(suite TestSuite, archive string, host string, cleanup bool, image
 	return output, len(aggErrs) == 0, utilerrors.NewAggregate(aggErrs)
 }
 
-const (
-	// workspaceDirPrefix is the string prefix used in the workspace directory name.
-	workspaceDirPrefix = "node-e2e-"
-	// timestampFormat is the timestamp format used in the node e2e directory name.
-	timestampFormat = "20060102T150405"
-)
+// timestampFormat is the timestamp format used in the node e2e directory name.
+const timestampFormat = "20060102T150405"
 
 func getTimestamp() string {
 	return fmt.Sprintf(time.Now().Format(timestampFormat))
-}
-
-func newWorkspaceDir() string {
-	return filepath.Join("/tmp", workspaceDirPrefix+getTimestamp())
-}
-
-// Parses the workspace directory name and gets the timestamp part of it.
-// This can later be used to name other artifacts (such as the
-// kubelet-${instance}.service systemd transient service used to launch
-// Kubelet) so that they can be matched to each other.
-func GetTimestampFromWorkspaceDir(dir string) string {
-	dirTimestamp := strings.TrimPrefix(filepath.Base(dir), workspaceDirPrefix)
-	re := regexp.MustCompile("^\\d{8}T\\d{6}$")
-	if re.MatchString(dirTimestamp) {
-		return dirTimestamp
-	}
-	// Fallback: if we can't find that timestamp, default to using Now()
-	return getTimestamp()
 }
 
 func getTestArtifacts(host, testDir string) error {
@@ -163,20 +139,21 @@ func getTestArtifacts(host, testDir string) error {
 		return fmt.Errorf("failed to create log directory %q: %v", logPath, err)
 	}
 	// Copy logs to artifacts/hostname
-	if _, err := runSSHCommand("scp", "-r", fmt.Sprintf("%s:%s/results/*.log", GetHostnameOrIp(host), testDir), logPath); err != nil {
+	_, err := runSSHCommand("scp", "-r", fmt.Sprintf("%s:%s/results/*.log", GetHostnameOrIp(host), testDir), logPath)
+	if err != nil {
 		return err
 	}
 	// Copy json files (if any) to artifacts.
-	if _, err := SSH(host, "ls", fmt.Sprintf("%s/results/*.json", testDir)); err == nil {
-		if _, err = runSSHCommand("scp", "-r", fmt.Sprintf("%s:%s/results/*.json", GetHostnameOrIp(host), testDir), *resultsDir); err != nil {
+	if _, err = SSH(host, "ls", fmt.Sprintf("%s/results/*.json", testDir)); err == nil {
+		_, err = runSSHCommand("scp", "-r", fmt.Sprintf("%s:%s/results/*.json", GetHostnameOrIp(host), testDir), *resultsDir)
+		if err != nil {
 			return err
 		}
 	}
-	if _, err := SSH(host, "ls", fmt.Sprintf("%s/results/junit*", testDir)); err == nil {
-		// Copy junit (if any) to the top of artifacts
-		if _, err = runSSHCommand("scp", fmt.Sprintf("%s:%s/results/junit*", GetHostnameOrIp(host), testDir), *resultsDir); err != nil {
-			return err
-		}
+	// Copy junit to the top of artifacts
+	_, err = runSSHCommand("scp", fmt.Sprintf("%s:%s/results/junit*", GetHostnameOrIp(host), testDir), *resultsDir)
+	if err != nil {
+		return err
 	}
 	return nil
 }

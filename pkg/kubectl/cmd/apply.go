@@ -26,11 +26,9 @@ import (
 	"github.com/jonboulle/clockwork"
 	"github.com/spf13/cobra"
 
-	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -39,52 +37,28 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/dynamic"
 	oapi "k8s.io/kube-openapi/pkg/util/proto"
 	api "k8s.io/kubernetes/pkg/apis/core"
+	"k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset"
 	"k8s.io/kubernetes/pkg/kubectl"
 	"k8s.io/kubernetes/pkg/kubectl/cmd/templates"
 	cmdutil "k8s.io/kubernetes/pkg/kubectl/cmd/util"
 	"k8s.io/kubernetes/pkg/kubectl/cmd/util/openapi"
-	"k8s.io/kubernetes/pkg/kubectl/genericclioptions"
-	"k8s.io/kubernetes/pkg/kubectl/genericclioptions/printers"
-	"k8s.io/kubernetes/pkg/kubectl/genericclioptions/resource"
+	"k8s.io/kubernetes/pkg/kubectl/resource"
 	"k8s.io/kubernetes/pkg/kubectl/scheme"
 	"k8s.io/kubernetes/pkg/kubectl/util/i18n"
-	"k8s.io/kubernetes/pkg/kubectl/validation"
 )
 
 type ApplyOptions struct {
-	RecordFlags *genericclioptions.RecordFlags
-	Recorder    genericclioptions.Recorder
-
-	PrintFlags *genericclioptions.PrintFlags
-	ToPrinter  func(string) (printers.ResourcePrinter, error)
-
-	DeleteFlags   *DeleteFlags
-	DeleteOptions *DeleteOptions
-
-	Selector                   string
-	DryRun                     bool
-	Prune                      bool
-	PruneResources             []pruneResource
-	cmdBaseName                string
-	All                        bool
-	Overwrite                  bool
-	OpenApiPatch               bool
-	PruneWhitelist             []string
-	ShouldIncludeUninitialized bool
-
-	Validator     validation.Schema
-	Builder       *resource.Builder
-	Mapper        meta.RESTMapper
-	DynamicClient dynamic.Interface
-	OpenAPISchema openapi.Resources
-
-	Namespace        string
-	EnforceNamespace bool
-
-	genericclioptions.IOStreams
+	FilenameOptions resource.FilenameOptions
+	Selector        string
+	Force           bool
+	Prune           bool
+	Cascade         bool
+	GracePeriod     int
+	PruneResources  []pruneResource
+	Timeout         time.Duration
+	cmdBaseName     string
 }
 
 const (
@@ -123,125 +97,62 @@ var (
 	warningNoLastAppliedConfigAnnotation = "Warning: %[1]s apply should be used on resource created by either %[1]s create --save-config or %[1]s apply\n"
 )
 
-func NewApplyOptions(ioStreams genericclioptions.IOStreams) *ApplyOptions {
-	return &ApplyOptions{
-		RecordFlags: genericclioptions.NewRecordFlags(),
-		DeleteFlags: NewDeleteFlags("that contains the configuration to apply"),
-		PrintFlags:  genericclioptions.NewPrintFlags("created").WithTypeSetter(scheme.Scheme),
-
-		Overwrite:    true,
-		OpenApiPatch: true,
-
-		Recorder: genericclioptions.NoopRecorder{},
-
-		IOStreams: ioStreams,
-	}
-}
-
-func NewCmdApply(baseName string, f cmdutil.Factory, ioStreams genericclioptions.IOStreams) *cobra.Command {
-	o := NewApplyOptions(ioStreams)
+func NewCmdApply(baseName string, f cmdutil.Factory, out, errOut io.Writer) *cobra.Command {
+	var options ApplyOptions
 
 	// Store baseName for use in printing warnings / messages involving the base command name.
 	// This is useful for downstream command that wrap this one.
-	o.cmdBaseName = baseName
+	options.cmdBaseName = baseName
 
 	cmd := &cobra.Command{
-		Use: "apply -f FILENAME",
-		DisableFlagsInUseLine: true,
+		Use:     "apply -f FILENAME",
 		Short:   i18n.T("Apply a configuration to a resource by filename or stdin"),
 		Long:    applyLong,
 		Example: applyExample,
 		Run: func(cmd *cobra.Command, args []string) {
-			cmdutil.CheckErr(o.Complete(f, cmd))
 			cmdutil.CheckErr(validateArgs(cmd, args))
-			cmdutil.CheckErr(validatePruneAll(o.Prune, o.All, o.Selector))
-			cmdutil.CheckErr(o.Run())
+			cmdutil.CheckErr(validatePruneAll(options.Prune, cmdutil.GetFlagBool(cmd, "all"), options.Selector))
+			cmdutil.CheckErr(RunApply(f, cmd, out, errOut, &options))
 		},
 	}
 
-	// bind flag structs
-	o.DeleteFlags.AddFlags(cmd)
-	o.RecordFlags.AddFlags(cmd)
-	o.PrintFlags.AddFlags(cmd)
-
+	usage := "that contains the configuration to apply"
+	cmdutil.AddFilenameOptionFlags(cmd, &options.FilenameOptions, usage)
 	cmd.MarkFlagRequired("filename")
-	cmd.Flags().BoolVar(&o.Overwrite, "overwrite", o.Overwrite, "Automatically resolve conflicts between the modified and live configuration by using values from the modified configuration")
-	cmd.Flags().BoolVar(&o.Prune, "prune", o.Prune, "Automatically delete resource objects, including the uninitialized ones, that do not appear in the configs and are created by either apply or create --save-config. Should be used with either -l or --all.")
+	cmd.Flags().Bool("overwrite", true, "Automatically resolve conflicts between the modified and live configuration by using values from the modified configuration")
+	cmd.Flags().BoolVar(&options.Prune, "prune", false, "Automatically delete resource objects, including the uninitialized ones, that do not appear in the configs and are created by either apply or create --save-config. Should be used with either -l or --all.")
+	cmd.Flags().BoolVar(&options.Cascade, "cascade", true, "Only relevant during a prune or a force apply. If true, cascade the deletion of the resources managed by pruned or deleted resources (e.g. Pods created by a ReplicationController).")
+	cmd.Flags().IntVar(&options.GracePeriod, "grace-period", -1, "Only relevant during a prune or a force apply. Period of time in seconds given to pruned or deleted resources to terminate gracefully. Ignored if negative.")
+	cmd.Flags().BoolVar(&options.Force, "force", false, fmt.Sprintf("Delete and re-create the specified resource, when PATCH encounters conflict and has retried for %d times.", maxPatchRetry))
+	cmd.Flags().DurationVar(&options.Timeout, "timeout", 0, "Only relevant during a force apply. The length of time to wait before giving up on a delete of the old resource, zero means determine a timeout from the size of the object. Any other values should contain a corresponding time unit (e.g. 1s, 2m, 3h).")
 	cmdutil.AddValidateFlags(cmd)
-	cmd.Flags().StringVarP(&o.Selector, "selector", "l", o.Selector, "Selector (label query) to filter on, supports '=', '==', and '!='.(e.g. -l key1=value1,key2=value2)")
-	cmd.Flags().BoolVar(&o.All, "all", o.All, "Select all resources in the namespace of the specified resource types.")
-	cmd.Flags().StringArrayVar(&o.PruneWhitelist, "prune-whitelist", o.PruneWhitelist, "Overwrite the default whitelist with <group/version/kind> for --prune")
-	cmd.Flags().BoolVar(&o.OpenApiPatch, "openapi-patch", o.OpenApiPatch, "If true, use openapi to calculate diff when the openapi presents and the resource can be found in the openapi spec. Otherwise, fall back to use baked-in types.")
+	cmd.Flags().StringVarP(&options.Selector, "selector", "l", "", "Selector (label query) to filter on, supports '=', '==', and '!='.(e.g. -l key1=value1,key2=value2)")
+	cmd.Flags().Bool("all", false, "Select all resources in the namespace of the specified resource types.")
+	cmd.Flags().StringArray("prune-whitelist", []string{}, "Overwrite the default whitelist with <group/version/kind> for --prune")
+	cmd.Flags().Bool("openapi-patch", true, "If true, use openapi to calculate diff when the openapi presents and the resource can be found in the openapi spec. Otherwise, fall back to use baked-in types.")
 	cmdutil.AddDryRunFlag(cmd)
+	cmdutil.AddPrinterFlags(cmd)
+	cmdutil.AddRecordFlag(cmd)
+	cmdutil.AddInclude3rdPartyFlags(cmd)
 	cmdutil.AddIncludeUninitializedFlag(cmd)
 
 	// apply subcommands
-	cmd.AddCommand(NewCmdApplyViewLastApplied(f, ioStreams))
-	cmd.AddCommand(NewCmdApplySetLastApplied(f, ioStreams))
-	cmd.AddCommand(NewCmdApplyEditLastApplied(f, ioStreams))
+	cmd.AddCommand(NewCmdApplyViewLastApplied(f, out, errOut))
+	cmd.AddCommand(NewCmdApplySetLastApplied(f, out, errOut))
+	cmd.AddCommand(NewCmdApplyEditLastApplied(f, out, errOut))
 
 	return cmd
-}
-
-func (o *ApplyOptions) Complete(f cmdutil.Factory, cmd *cobra.Command) error {
-	o.DryRun = cmdutil.GetDryRunFlag(cmd)
-
-	// allow for a success message operation to be specified at print time
-	o.ToPrinter = func(operation string) (printers.ResourcePrinter, error) {
-		o.PrintFlags.NamePrintFlags.Operation = operation
-		if o.DryRun {
-			o.PrintFlags.Complete("%s (dry run)")
-		}
-
-		return o.PrintFlags.ToPrinter()
-	}
-
-	var err error
-	o.RecordFlags.Complete(cmd)
-	o.Recorder, err = o.RecordFlags.ToRecorder()
-	if err != nil {
-		return err
-	}
-
-	dynamicClient, err := f.DynamicClient()
-	if err != nil {
-		return err
-	}
-	o.DeleteOptions = o.DeleteFlags.ToOptions(dynamicClient, o.IOStreams)
-	o.ShouldIncludeUninitialized = cmdutil.ShouldIncludeUninitialized(cmd, o.Prune)
-
-	o.OpenAPISchema, _ = f.OpenAPISchema()
-	o.Validator, err = f.Validator(cmdutil.GetFlagBool(cmd, "validate"))
-	o.Builder = f.NewBuilder()
-	o.Mapper, err = f.ToRESTMapper()
-	if err != nil {
-		return err
-	}
-
-	o.DynamicClient, err = f.DynamicClient()
-	if err != nil {
-		return err
-	}
-
-	o.Namespace, o.EnforceNamespace, err = f.ToRawKubeConfigLoader().Namespace()
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func validateArgs(cmd *cobra.Command, args []string) error {
 	if len(args) != 0 {
 		return cmdutil.UsageErrorf(cmd, "Unexpected args: %v", args)
 	}
+
 	return nil
 }
 
 func validatePruneAll(prune, all bool, selector string) error {
-	if all && len(selector) > 0 {
-		return fmt.Errorf("cannot set --all and --selector at the same time")
-	}
 	if prune && !all && selector == "" {
 		return fmt.Errorf("all resources selected for prune without explicitly passing --all. To prune all resources, pass the --all flag. If you did not mean to prune all resources, specify a label selector.")
 	}
@@ -279,43 +190,59 @@ func parsePruneResources(mapper meta.RESTMapper, gvks []string) ([]pruneResource
 	return pruneResources, nil
 }
 
-func (o *ApplyOptions) Run() error {
+func RunApply(f cmdutil.Factory, cmd *cobra.Command, out, errOut io.Writer, options *ApplyOptions) error {
+	schema, err := f.Validator(cmdutil.GetFlagBool(cmd, "validate"))
+	if err != nil {
+		return err
+	}
+
 	var openapiSchema openapi.Resources
-	if o.OpenApiPatch {
-		openapiSchema = o.OpenAPISchema
+	if cmdutil.GetFlagBool(cmd, "openapi-patch") {
+		openapiSchema, err = f.OpenAPISchema()
+		if err != nil {
+			openapiSchema = nil
+		}
+	}
+
+	cmdNamespace, enforceNamespace, err := f.DefaultNamespace()
+	if err != nil {
+		return err
 	}
 
 	// include the uninitialized objects by default if --prune is true
 	// unless explicitly set --include-uninitialized=false
-	r := o.Builder.
+	includeUninitialized := cmdutil.ShouldIncludeUninitialized(cmd, options.Prune)
+	r := f.NewBuilder().
 		Unstructured().
-		Schema(o.Validator).
+		Schema(schema).
 		ContinueOnError().
-		NamespaceParam(o.Namespace).DefaultNamespace().
-		FilenameParam(o.EnforceNamespace, &o.DeleteOptions.FilenameOptions).
-		LabelSelectorParam(o.Selector).
-		IncludeUninitialized(o.ShouldIncludeUninitialized).
+		NamespaceParam(cmdNamespace).DefaultNamespace().
+		FilenameParam(enforceNamespace, &options.FilenameOptions).
+		LabelSelectorParam(options.Selector).
+		IncludeUninitialized(includeUninitialized).
 		Flatten().
 		Do()
 	if err := r.Err(); err != nil {
 		return err
 	}
 
-	var err error
-	if o.Prune {
-		o.PruneResources, err = parsePruneResources(o.Mapper, o.PruneWhitelist)
+	if options.Prune {
+		options.PruneResources, err = parsePruneResources(r.Mapper().RESTMapper, cmdutil.GetFlagStringArray(cmd, "prune-whitelist"))
 		if err != nil {
 			return err
 		}
 	}
 
-	output := *o.PrintFlags.OutputFormat
+	dryRun := cmdutil.GetFlagBool(cmd, "dry-run")
+	output := cmdutil.GetFlagString(cmd, "output")
 	shortOutput := output == "name"
+
+	encoder := f.JSONEncoder()
+	decoder := f.Decoder(false)
+	mapper := r.Mapper().RESTMapper
 
 	visitedUids := sets.NewString()
 	visitedNamespaces := sets.NewString()
-
-	var objs []runtime.Object
 
 	count := 0
 	err = r.Visit(func(info *resource.Info, err error) error {
@@ -327,185 +254,145 @@ func (o *ApplyOptions) Run() error {
 			visitedNamespaces.Insert(info.Namespace)
 		}
 
-		if err := o.Recorder.Record(info.Object); err != nil {
-			glog.V(4).Infof("error recording current command: %v", err)
+		// Add change-cause annotation to resource info if it should be recorded
+		if cmdutil.ShouldRecord(cmd, info) {
+			recordInObj := info.Object
+			if err := cmdutil.RecordChangeCause(recordInObj, f.Command(cmd, false)); err != nil {
+				glog.V(4).Infof("error recording current command: %v", err)
+			}
 		}
 
 		// Get the modified configuration of the object. Embed the result
 		// as an annotation in the modified configuration, so that it will appear
 		// in the patch sent to the server.
-		modified, err := kubectl.GetModifiedConfiguration(info.Object, true, unstructured.UnstructuredJSONScheme)
+		modified, err := kubectl.GetModifiedConfiguration(info, true, encoder)
 		if err != nil {
-			return cmdutil.AddSourceToErr(fmt.Sprintf("retrieving modified configuration from:\n%s\nfor:", info.String()), info.Source, err)
+			return cmdutil.AddSourceToErr(fmt.Sprintf("retrieving modified configuration from:\n%v\nfor:", info), info.Source, err)
 		}
-
-		// Print object only if output format other than "name" is specified
-		printObject := len(output) > 0 && !shortOutput
 
 		if err := info.Get(); err != nil {
 			if !errors.IsNotFound(err) {
-				return cmdutil.AddSourceToErr(fmt.Sprintf("retrieving current configuration of:\n%s\nfrom server for:", info.String()), info.Source, err)
+				return cmdutil.AddSourceToErr(fmt.Sprintf("retrieving current configuration of:\n%v\nfrom server for:", info), info.Source, err)
 			}
 			// Create the resource if it doesn't exist
 			// First, update the annotation used by kubectl apply
-			if err := kubectl.CreateApplyAnnotation(info.Object, unstructured.UnstructuredJSONScheme); err != nil {
+			if err := kubectl.CreateApplyAnnotation(info, encoder); err != nil {
 				return cmdutil.AddSourceToErr("creating", info.Source, err)
 			}
 
-			if !o.DryRun {
+			if !dryRun {
 				// Then create the resource and skip the three-way merge
-				obj, err := resource.NewHelper(info.Client, info.Mapping).Create(info.Namespace, true, info.Object)
-				if err != nil {
+				if err := createAndRefresh(info); err != nil {
 					return cmdutil.AddSourceToErr("creating", info.Source, err)
 				}
-				info.Refresh(obj, true)
-				metadata, err := meta.Accessor(info.Object)
-				if err != nil {
+				if uid, err := info.Mapping.UID(info.Object); err != nil {
 					return err
+				} else {
+					visitedUids.Insert(string(uid))
 				}
-				visitedUids.Insert(string(metadata.GetUID()))
 			}
 
 			count++
-
-			if printObject {
-				objs = append(objs, info.Object)
-				return nil
+			if len(output) > 0 && !shortOutput {
+				return f.PrintResourceInfoForCommand(cmd, info, out)
 			}
-
-			printer, err := o.ToPrinter("created")
-			if err != nil {
-				return err
-			}
-			return printer.PrintObj(info.Object, o.Out)
+			f.PrintSuccess(mapper, shortOutput, out, info.Mapping.Resource, info.Name, dryRun, "created")
+			return nil
 		}
 
-		if !o.DryRun {
-			metadata, err := meta.Accessor(info.Object)
+		if !dryRun {
+			annotationMap, err := info.Mapping.MetadataAccessor.Annotations(info.Object)
 			if err != nil {
 				return err
 			}
-
-			annotationMap := metadata.GetAnnotations()
 			if _, ok := annotationMap[api.LastAppliedConfigAnnotation]; !ok {
-				fmt.Fprintf(o.ErrOut, warningNoLastAppliedConfigAnnotation, o.cmdBaseName)
+				fmt.Fprintf(errOut, warningNoLastAppliedConfigAnnotation, options.cmdBaseName)
 			}
-
+			overwrite := cmdutil.GetFlagBool(cmd, "overwrite")
 			helper := resource.NewHelper(info.Client, info.Mapping)
 			patcher := &patcher{
+				encoder:       encoder,
+				decoder:       decoder,
 				mapping:       info.Mapping,
 				helper:        helper,
-				dynamicClient: o.DynamicClient,
-				overwrite:     o.Overwrite,
+				clientFunc:    f.UnstructuredClientForMapping,
+				clientsetFunc: f.ClientSet,
+				overwrite:     overwrite,
 				backOff:       clockwork.NewRealClock(),
-				force:         o.DeleteOptions.ForceDeletion,
-				cascade:       o.DeleteOptions.Cascade,
-				timeout:       o.DeleteOptions.Timeout,
-				gracePeriod:   o.DeleteOptions.GracePeriod,
+				force:         options.Force,
+				cascade:       options.Cascade,
+				timeout:       options.Timeout,
+				gracePeriod:   options.GracePeriod,
 				openapiSchema: openapiSchema,
 			}
 
-			patchBytes, patchedObject, err := patcher.patch(info.Object, modified, info.Source, info.Namespace, info.Name, o.ErrOut)
+			patchBytes, patchedObject, err := patcher.patch(info.Object, modified, info.Source, info.Namespace, info.Name, errOut)
 			if err != nil {
 				return cmdutil.AddSourceToErr(fmt.Sprintf("applying patch:\n%s\nto:\n%v\nfor:", patchBytes, info), info.Source, err)
 			}
 
 			info.Refresh(patchedObject, true)
 
-			visitedUids.Insert(string(metadata.GetUID()))
+			if uid, err := info.Mapping.UID(info.Object); err != nil {
+				return err
+			} else {
+				visitedUids.Insert(string(uid))
+			}
 
-			if string(patchBytes) == "{}" && !printObject {
+			if string(patchBytes) == "{}" {
 				count++
-
-				printer, err := o.ToPrinter("unchanged")
-				if err != nil {
-					return err
-				}
-				return printer.PrintObj(info.Object, o.Out)
+				f.PrintSuccess(mapper, shortOutput, out, info.Mapping.Resource, info.Name, false, "unchanged")
+				return nil
 			}
 		}
 		count++
-
-		if printObject {
-			objs = append(objs, info.Object)
-			return nil
+		if len(output) > 0 && !shortOutput {
+			return f.PrintResourceInfoForCommand(cmd, info, out)
 		}
-
-		printer, err := o.ToPrinter("configured")
-		if err != nil {
-			return err
-		}
-		return printer.PrintObj(info.Object, o.Out)
+		f.PrintSuccess(mapper, shortOutput, out, info.Mapping.Resource, info.Name, dryRun, "configured")
+		return nil
 	})
+
 	if err != nil {
 		return err
 	}
-
 	if count == 0 {
 		return fmt.Errorf("no objects passed to apply")
 	}
 
-	// print objects
-	if len(objs) > 0 {
-		printer, err := o.ToPrinter("")
-		if err != nil {
-			return err
-		}
-
-		objToPrint := objs[0]
-		if len(objs) > 1 {
-			list := &v1.List{
-				TypeMeta: metav1.TypeMeta{
-					Kind:       "List",
-					APIVersion: "v1",
-				},
-				ListMeta: metav1.ListMeta{},
-			}
-			if err := meta.SetList(list, objs); err != nil {
-				return err
-			}
-
-			objToPrint = list
-		}
-		if err := printer.PrintObj(objToPrint, o.Out); err != nil {
-			return err
-		}
-	}
-
-	if !o.Prune {
+	if !options.Prune {
 		return nil
 	}
 
 	p := pruner{
-		mapper:        o.Mapper,
-		dynamicClient: o.DynamicClient,
+		mapper:        mapper,
+		clientFunc:    f.UnstructuredClientForMapping,
+		clientsetFunc: f.ClientSet,
 
-		labelSelector: o.Selector,
+		labelSelector: options.Selector,
 		visitedUids:   visitedUids,
 
-		cascade:     o.DeleteOptions.Cascade,
-		dryRun:      o.DryRun,
-		gracePeriod: o.DeleteOptions.GracePeriod,
+		cascade:     options.Cascade,
+		dryRun:      dryRun,
+		gracePeriod: options.GracePeriod,
 
-		toPrinter: o.ToPrinter,
-
-		out: o.Out,
+		out: out,
 	}
 
-	namespacedRESTMappings, nonNamespacedRESTMappings, err := getRESTMappings(o.Mapper, &(o.PruneResources))
+	namespacedRESTMappings, nonNamespacedRESTMappings, err := getRESTMappings(mapper, &(options.PruneResources))
 	if err != nil {
 		return fmt.Errorf("error retrieving RESTMappings to prune: %v", err)
 	}
 
 	for n := range visitedNamespaces {
 		for _, m := range namespacedRESTMappings {
-			if err := p.prune(n, m, o.ShouldIncludeUninitialized); err != nil {
+			if err := p.prune(f, n, m, shortOutput, includeUninitialized); err != nil {
 				return fmt.Errorf("error pruning namespaced object %v: %v", m.GroupVersionKind, err)
 			}
 		}
 	}
 	for _, m := range nonNamespacedRESTMappings {
-		if err := p.prune(metav1.NamespaceNone, m, o.ShouldIncludeUninitialized); err != nil {
+		if err := p.prune(f, metav1.NamespaceNone, m, shortOutput, includeUninitialized); err != nil {
 			return fmt.Errorf("error pruning nonNamespaced object %v: %v", m.GroupVersionKind, err)
 		}
 	}
@@ -539,7 +426,6 @@ func getRESTMappings(mapper meta.RESTMapper, pruneResources *[]pruneResource) (n
 			{"", "v1", "Secret", true},
 			{"", "v1", "Service", true},
 			{"batch", "v1", "Job", true},
-			{"batch", "v1beta1", "CronJob", true},
 			{"extensions", "v1beta1", "DaemonSet", true},
 			{"extensions", "v1beta1", "Deployment", true},
 			{"extensions", "v1beta1", "Ingress", true},
@@ -566,7 +452,8 @@ func getRESTMappings(mapper meta.RESTMapper, pruneResources *[]pruneResource) (n
 
 type pruner struct {
 	mapper        meta.RESTMapper
-	dynamicClient dynamic.Interface
+	clientFunc    resource.ClientMapperFunc
+	clientsetFunc func() (internalclientset.Interface, error)
 
 	visitedUids   sets.String
 	labelSelector string
@@ -576,83 +463,117 @@ type pruner struct {
 	dryRun      bool
 	gracePeriod int
 
-	toPrinter func(string) (printers.ResourcePrinter, error)
-
 	out io.Writer
 }
 
-func (p *pruner) prune(namespace string, mapping *meta.RESTMapping, includeUninitialized bool) error {
-	objList, err := p.dynamicClient.Resource(mapping.Resource).
-		Namespace(namespace).
-		List(metav1.ListOptions{
-			LabelSelector:        p.labelSelector,
-			FieldSelector:        p.fieldSelector,
-			IncludeUninitialized: includeUninitialized,
-		})
+func (p *pruner) prune(f cmdutil.Factory, namespace string, mapping *meta.RESTMapping, shortOutput, includeUninitialized bool) error {
+	c, err := p.clientFunc(mapping)
 	if err != nil {
 		return err
 	}
 
+	objList, err := resource.NewHelper(c, mapping).List(
+		namespace,
+		mapping.GroupVersionKind.Version,
+		false,
+		&metav1.ListOptions{
+			LabelSelector:        p.labelSelector,
+			FieldSelector:        p.fieldSelector,
+			IncludeUninitialized: includeUninitialized,
+		},
+	)
+	if err != nil {
+		return err
+	}
 	objs, err := meta.ExtractList(objList)
 	if err != nil {
 		return err
 	}
 
 	for _, obj := range objs {
-		metadata, err := meta.Accessor(obj)
+		annots, err := mapping.MetadataAccessor.Annotations(obj)
 		if err != nil {
 			return err
 		}
-		annots := metadata.GetAnnotations()
 		if _, ok := annots[api.LastAppliedConfigAnnotation]; !ok {
 			// don't prune resources not created with apply
 			continue
 		}
-		uid := metadata.GetUID()
+		uid, err := mapping.UID(obj)
+		if err != nil {
+			return err
+		}
 		if p.visitedUids.Has(string(uid)) {
 			continue
 		}
-		name := metadata.GetName()
+
+		name, err := mapping.Name(obj)
+		if err != nil {
+			return err
+		}
 		if !p.dryRun {
 			if err := p.delete(namespace, name, mapping); err != nil {
 				return err
 			}
 		}
-
-		printer, err := p.toPrinter("pruned")
-		if err != nil {
-			return err
-		}
-		printer.PrintObj(obj, p.out)
+		f.PrintSuccess(p.mapper, shortOutput, p.out, mapping.Resource, name, p.dryRun, "pruned")
 	}
 	return nil
 }
 
 func (p *pruner) delete(namespace, name string, mapping *meta.RESTMapping) error {
-	return runDelete(namespace, name, mapping, p.dynamicClient, p.cascade, p.gracePeriod)
+	c, err := p.clientFunc(mapping)
+	if err != nil {
+		return err
+	}
+
+	return runDelete(namespace, name, mapping, c, nil, p.cascade, p.gracePeriod, p.clientsetFunc)
 }
 
-func runDelete(namespace, name string, mapping *meta.RESTMapping, c dynamic.Interface, cascade bool, gracePeriod int) error {
-	options := &metav1.DeleteOptions{}
+func runDelete(namespace, name string, mapping *meta.RESTMapping, c resource.RESTClient, helper *resource.Helper, cascade bool, gracePeriod int, clientsetFunc func() (internalclientset.Interface, error)) error {
+	if !cascade {
+		if helper == nil {
+			helper = resource.NewHelper(c, mapping)
+		}
+		return helper.Delete(namespace, name)
+	}
+	cs, err := clientsetFunc()
+	if err != nil {
+		return err
+	}
+	r, err := kubectl.ReaperFor(mapping.GroupVersionKind.GroupKind(), cs)
+	if err != nil {
+		if _, ok := err.(*kubectl.NoSuchReaperError); !ok {
+			return err
+		}
+		return resource.NewHelper(c, mapping).Delete(namespace, name)
+	}
+	var options *metav1.DeleteOptions
 	if gracePeriod >= 0 {
 		options = metav1.NewDeleteOptions(int64(gracePeriod))
 	}
-	policy := metav1.DeletePropagationForeground
-	if !cascade {
-		policy = metav1.DeletePropagationOrphan
+	if err := r.Stop(namespace, name, 2*time.Minute, options); err != nil {
+		return err
 	}
-	options.PropagationPolicy = &policy
-	return c.Resource(mapping.Resource).Namespace(namespace).Delete(name, options)
+	return nil
 }
 
 func (p *patcher) delete(namespace, name string) error {
-	return runDelete(namespace, name, p.mapping, p.dynamicClient, p.cascade, p.gracePeriod)
+	c, err := p.clientFunc(p.mapping)
+	if err != nil {
+		return err
+	}
+	return runDelete(namespace, name, p.mapping, c, p.helper, p.cascade, p.gracePeriod, p.clientsetFunc)
 }
 
 type patcher struct {
+	encoder runtime.Encoder
+	decoder runtime.Decoder
+
 	mapping       *meta.RESTMapping
 	helper        *resource.Helper
-	dynamicClient dynamic.Interface
+	clientFunc    resource.ClientMapperFunc
+	clientsetFunc func() (internalclientset.Interface, error)
 
 	overwrite bool
 	backOff   clockwork.Clock
@@ -667,13 +588,13 @@ type patcher struct {
 
 func (p *patcher) patchSimple(obj runtime.Object, modified []byte, source, namespace, name string, errOut io.Writer) ([]byte, runtime.Object, error) {
 	// Serialize the current configuration of the object from the server.
-	current, err := runtime.Encode(unstructured.UnstructuredJSONScheme, obj)
+	current, err := runtime.Encode(p.encoder, obj)
 	if err != nil {
 		return nil, nil, cmdutil.AddSourceToErr(fmt.Sprintf("serializing current configuration from:\n%v\nfor:", obj), source, err)
 	}
 
 	// Retrieve the original configuration of the object from the annotation.
-	original, err := kubectl.GetOriginalConfiguration(obj)
+	original, err := kubectl.GetOriginalConfiguration(p.mapping, obj)
 	if err != nil {
 		return nil, nil, cmdutil.AddSourceToErr(fmt.Sprintf("retrieving original configuration from:\n%v\nfor:", obj), source, err)
 	}
@@ -753,39 +674,30 @@ func (p *patcher) patch(current runtime.Object, modified []byte, source, namespa
 		}
 		patchBytes, patchObject, err = p.patchSimple(current, modified, source, namespace, name, errOut)
 	}
-	if err != nil && errors.IsConflict(err) && p.force {
-		patchBytes, patchObject, err = p.deleteAndCreate(current, modified, namespace, name)
+	if err != nil && p.force {
+		patchBytes, patchObject, err = p.deleteAndCreate(modified, namespace, name)
 	}
 	return patchBytes, patchObject, err
 }
 
-func (p *patcher) deleteAndCreate(original runtime.Object, modified []byte, namespace, name string) ([]byte, runtime.Object, error) {
-	if err := p.delete(namespace, name); err != nil {
+func (p *patcher) deleteAndCreate(modified []byte, namespace, name string) ([]byte, runtime.Object, error) {
+	err := p.delete(namespace, name)
+	if err != nil {
 		return modified, nil, err
 	}
-	// TODO: use wait
-	if err := wait.PollImmediate(1*time.Second, p.timeout, func() (bool, error) {
+	err = wait.PollImmediate(kubectl.Interval, p.timeout, func() (bool, error) {
 		if _, err := p.helper.Get(namespace, name, false); !errors.IsNotFound(err) {
 			return false, err
 		}
 		return true, nil
-	}); err != nil {
+	})
+	if err != nil {
 		return modified, nil, err
 	}
-	versionedObject, _, err := unstructured.UnstructuredJSONScheme.Decode(modified, nil, nil)
+	versionedObject, _, err := p.decoder.Decode(modified, nil, nil)
 	if err != nil {
 		return modified, nil, err
 	}
 	createdObject, err := p.helper.Create(namespace, true, versionedObject)
-	if err != nil {
-		// restore the original object if we fail to create the new one
-		// but still propagate and advertise error to user
-		recreated, recreateErr := p.helper.Create(namespace, true, original)
-		if recreateErr != nil {
-			err = fmt.Errorf("An error occurred force-replacing the existing object with the newly provided one:\n\n%v.\n\nAdditionally, an error occurred attempting to restore the original object:\n\n%v\n", err, recreateErr)
-		} else {
-			createdObject = recreated
-		}
-	}
 	return modified, createdObject, err
 }

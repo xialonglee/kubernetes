@@ -46,7 +46,7 @@ func TestKnownFeatures(t *testing.T) {
 	if r[1] != f2 {
 		t.Errorf("KnownFeatures returned %s values, expected %s", r[1], f2)
 	}
-	// check the second value is feature3; prerelease should not be shown for GA features; default should be present
+	// check the second value is feature3; prerelease should not shown fo GA features; default should be present
 	f3 := "feature3=true|false (default=false)"
 	if r[2] != f3 {
 		t.Errorf("KnownFeatures returned %s values, expected %s", r[2], f3)
@@ -121,7 +121,7 @@ func TestNewFeatureGate(t *testing.T) {
 func TestValidateVersion(t *testing.T) {
 	var someFeatures = FeatureList{
 		"feature1": {FeatureSpec: utilfeature.FeatureSpec{Default: false, PreRelease: utilfeature.Beta}},
-		"feature2": {FeatureSpec: utilfeature.FeatureSpec{Default: true, PreRelease: utilfeature.Alpha}},
+		"feature2": {FeatureSpec: utilfeature.FeatureSpec{Default: true, PreRelease: utilfeature.Alpha}, MinimumVersion: v190},
 	}
 
 	var tests = []struct {
@@ -133,9 +133,15 @@ func TestValidateVersion(t *testing.T) {
 			requestedFeatures: map[string]bool{"feature1": true},
 			expectedError:     false,
 		},
-		{ //no min version
+		{ //min version but correct value given
 			requestedFeatures: map[string]bool{"feature2": true},
+			requestedVersion:  "v1.9.0",
 			expectedError:     false,
+		},
+		{ //min version and incorrect value given
+			requestedFeatures: map[string]bool{"feature2": true},
+			requestedVersion:  "v1.8.2",
+			expectedError:     true,
 		},
 	}
 
@@ -162,16 +168,16 @@ func TestResolveFeatureGateDependencies(t *testing.T) {
 			expectedFeatures: map[string]bool{},
 		},
 		{ // others flags
-			inputFeatures:    map[string]bool{CoreDNS: false},
-			expectedFeatures: map[string]bool{CoreDNS: false},
+			inputFeatures:    map[string]bool{"SupportIPVSProxyMode": true},
+			expectedFeatures: map[string]bool{"SupportIPVSProxyMode": true},
 		},
 		{ // just StoreCertsInSecrets flags
-			inputFeatures:    map[string]bool{StoreCertsInSecrets: true},
-			expectedFeatures: map[string]bool{StoreCertsInSecrets: true, SelfHosting: true},
+			inputFeatures:    map[string]bool{"StoreCertsInSecrets": true},
+			expectedFeatures: map[string]bool{"StoreCertsInSecrets": true, "SelfHosting": true},
 		},
 		{ // just HighAvailability flags
-			inputFeatures:    map[string]bool{HighAvailability: true},
-			expectedFeatures: map[string]bool{HighAvailability: true, StoreCertsInSecrets: true, SelfHosting: true},
+			inputFeatures:    map[string]bool{"HighAvailability": true},
+			expectedFeatures: map[string]bool{"HighAvailability": true, "StoreCertsInSecrets": true, "SelfHosting": true},
 		},
 	}
 
@@ -180,19 +186,6 @@ func TestResolveFeatureGateDependencies(t *testing.T) {
 		if !reflect.DeepEqual(test.inputFeatures, test.expectedFeatures) {
 			t.Errorf("ResolveFeatureGateDependencies failed, expected: %v, got: %v", test.inputFeatures, test.expectedFeatures)
 
-		}
-	}
-}
-
-// TestEnabledDefaults tests that Enabled returns the default values for
-// each feature gate when no feature gates are specified.
-func TestEnabledDefaults(t *testing.T) {
-	for featureName, feature := range InitFeatureGates {
-		featureList := make(map[string]bool)
-
-		enabled := Enabled(featureList, featureName)
-		if enabled != feature.Default {
-			t.Errorf("Enabled returned %v instead of default value %v for feature %s", enabled, feature.Default, featureName)
 		}
 	}
 }

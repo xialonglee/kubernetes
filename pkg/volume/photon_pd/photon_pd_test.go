@@ -138,6 +138,13 @@ func TestPlugin(t *testing.T) {
 			t.Errorf("SetUp() failed: %v", err)
 		}
 	}
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			t.Errorf("SetUp() failed, volume path not created: %s", path)
+		} else {
+			t.Errorf("SetUp() failed: %v", err)
+		}
+	}
 
 	fakeManager = &fakePDManager{}
 	unmounter, err := plug.(*photonPersistentDiskPlugin).newUnmounterInternal("vol1", types.UID("poduid"), fakeManager, fakeMounter)
@@ -166,7 +173,7 @@ func TestPlugin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Error creating new provisioner:%v", err)
 	}
-	persistentSpec, err := provisioner.Provision(nil, nil)
+	persistentSpec, err := provisioner.Provision()
 	if err != nil {
 		t.Errorf("Provision() failed: %v", err)
 	}

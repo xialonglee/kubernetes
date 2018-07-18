@@ -29,7 +29,6 @@ import (
 	"time"
 
 	"github.com/golang/glog"
-
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kruntime "k8s.io/apimachinery/pkg/runtime"
@@ -38,6 +37,7 @@ import (
 	"k8s.io/apiserver/pkg/storage"
 	"k8s.io/kubernetes/pkg/api/endpoints"
 	api "k8s.io/kubernetes/pkg/apis/core"
+	"k8s.io/kubernetes/pkg/registry/core/endpoint"
 )
 
 // Leases is an interface which assists in managing the set of active masters
@@ -119,16 +119,16 @@ func NewLeases(storage storage.Interface, baseKey string, leaseTime time.Duratio
 }
 
 type leaseEndpointReconciler struct {
-	endpointStorage       rest.StandardStorage
+	endpointRegistry      endpoint.Registry
 	masterLeases          Leases
 	stopReconcilingCalled bool
 	reconcilingLock       sync.Mutex
 }
 
 // NewLeaseEndpointReconciler creates a new LeaseEndpoint reconciler
-func NewLeaseEndpointReconciler(endpointStorage rest.StandardStorage, masterLeases Leases) EndpointReconciler {
+func NewLeaseEndpointReconciler(endpointRegistry endpoint.Registry, masterLeases Leases) EndpointReconciler {
 	return &leaseEndpointReconciler{
-		endpointStorage:       endpointStorage,
+		endpointRegistry:      endpointRegistry,
 		masterLeases:          masterLeases,
 		stopReconcilingCalled: false,
 	}
@@ -163,8 +163,7 @@ func (r *leaseEndpointReconciler) doReconcile(serviceName string, endpointPorts 
 	ctx := apirequest.NewDefaultContext()
 
 	// Retrieve the current list of endpoints...
-	var e *api.Endpoints
-	obj, err := r.endpointStorage.Get(ctx, serviceName, &metav1.GetOptions{})
+	e, err := r.endpointRegistry.GetEndpoints(ctx, serviceName, &metav1.GetOptions{})
 	if err != nil {
 		if !errors.IsNotFound(err) {
 			return err
@@ -176,8 +175,6 @@ func (r *leaseEndpointReconciler) doReconcile(serviceName string, endpointPorts 
 				Namespace: api.NamespaceDefault,
 			},
 		}
-	} else {
-		e = obj.(*api.Endpoints)
 	}
 
 	// ... and the list of master IP keys from etcd
@@ -224,8 +221,7 @@ func (r *leaseEndpointReconciler) doReconcile(serviceName string, endpointPorts 
 	}
 
 	glog.Warningf("Resetting endpoints for master service %q to %v", serviceName, masterIPs)
-	_, _, err = r.endpointStorage.Update(ctx, e.Name, rest.DefaultUpdatedObjectInfo(e), rest.ValidateAllObjectFunc, rest.ValidateAllObjectUpdateFunc, false, &metav1.UpdateOptions{})
-	return err
+	return r.endpointRegistry.UpdateEndpoints(ctx, e, rest.ValidateAllObjectFunc, rest.ValidateAllObjectUpdateFunc)
 }
 
 // checkEndpointSubsetFormatWithLease determines if the endpoint is in the

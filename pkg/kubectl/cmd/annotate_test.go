@@ -17,6 +17,7 @@ limitations under the License.
 package cmd
 
 import (
+	"bytes"
 	"net/http"
 	"reflect"
 	"strings"
@@ -27,10 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/rest/fake"
-	"k8s.io/kubernetes/pkg/api/legacyscheme"
 	cmdtesting "k8s.io/kubernetes/pkg/kubectl/cmd/testing"
-	"k8s.io/kubernetes/pkg/kubectl/genericclioptions"
-	"k8s.io/kubernetes/pkg/kubectl/scheme"
 )
 
 func TestValidateAnnotationOverwrites(t *testing.T) {
@@ -417,46 +415,41 @@ func TestAnnotateErrors(t *testing.T) {
 	}
 
 	for k, testCase := range testCases {
-		t.Run(k, func(t *testing.T) {
-			tf := cmdtesting.NewTestFactory().WithNamespace("test")
-			defer tf.Cleanup()
+		f, tf, _, _ := cmdtesting.NewAPIFactory()
+		tf.Printer = &testPrinter{}
+		tf.Namespace = "test"
+		tf.ClientConfig = defaultClientConfig()
 
-			tf.ClientConfigVal = defaultClientConfig()
+		buf := bytes.NewBuffer([]byte{})
+		cmd := NewCmdAnnotate(f, buf)
+		cmd.SetOutput(buf)
 
-			iostreams, _, bufOut, bufErr := genericclioptions.NewTestIOStreams()
-			cmd := NewCmdAnnotate("kubectl", tf, iostreams)
-			cmd.SetOutput(bufOut)
-
-			for k, v := range testCase.flags {
-				cmd.Flags().Set(k, v)
-			}
-			options := NewAnnotateOptions(iostreams)
-			err := options.Complete(tf, cmd, testCase.args)
-			if err == nil {
-				err = options.Validate()
-			}
-			if !testCase.errFn(err) {
-				t.Errorf("%s: unexpected error: %v", k, err)
-				return
-			}
-			if bufOut.Len() > 0 {
-				t.Errorf("buffer should be empty: %s", string(bufOut.Bytes()))
-			}
-			if bufErr.Len() > 0 {
-				t.Errorf("buffer should be empty: %s", string(bufErr.Bytes()))
-			}
-		})
+		for k, v := range testCase.flags {
+			cmd.Flags().Set(k, v)
+		}
+		options := &AnnotateOptions{}
+		err := options.Complete(buf, cmd, testCase.args)
+		if err == nil {
+			err = options.Validate()
+		}
+		if !testCase.errFn(err) {
+			t.Errorf("%s: unexpected error: %v", k, err)
+			continue
+		}
+		if tf.Printer.(*testPrinter).Objects != nil {
+			t.Errorf("unexpected print to default printer")
+		}
+		if buf.Len() > 0 {
+			t.Errorf("buffer should be empty: %s", string(buf.Bytes()))
+		}
 	}
 }
 
 func TestAnnotateObject(t *testing.T) {
 	pods, _, _ := testData()
 
-	tf := cmdtesting.NewTestFactory().WithNamespace("test")
-	defer tf.Cleanup()
-
-	codec := legacyscheme.Codecs.LegacyCodec(scheme.Scheme.PrioritizedVersionsAllGroups()...)
-
+	f, tf, codec, _ := cmdtesting.NewAPIFactory()
+	tf.Printer = &testPrinter{}
 	tf.UnstructuredClient = &fake.RESTClient{
 		GroupVersion:         schema.GroupVersion{Group: "testgroup", Version: "v1"},
 		NegotiatedSerializer: unstructuredSerializer,
@@ -484,20 +477,21 @@ func TestAnnotateObject(t *testing.T) {
 			}
 		}),
 	}
-	tf.ClientConfigVal = defaultClientConfig()
+	tf.Namespace = "test"
+	tf.ClientConfig = defaultClientConfig()
 
-	iostreams, _, bufOut, _ := genericclioptions.NewTestIOStreams()
-	cmd := NewCmdAnnotate("kubectl", tf, iostreams)
-	cmd.SetOutput(bufOut)
-	options := NewAnnotateOptions(iostreams)
+	buf := bytes.NewBuffer([]byte{})
+	cmd := NewCmdAnnotate(f, buf)
+	cmd.SetOutput(buf)
+	options := &AnnotateOptions{}
 	args := []string{"pods/foo", "a=b", "c-"}
-	if err := options.Complete(tf, cmd, args); err != nil {
+	if err := options.Complete(buf, cmd, args); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if err := options.Validate(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if err := options.RunAnnotate(); err != nil {
+	if err := options.RunAnnotate(f, cmd); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -505,11 +499,8 @@ func TestAnnotateObject(t *testing.T) {
 func TestAnnotateObjectFromFile(t *testing.T) {
 	pods, _, _ := testData()
 
-	tf := cmdtesting.NewTestFactory().WithNamespace("test")
-	defer tf.Cleanup()
-
-	codec := legacyscheme.Codecs.LegacyCodec(scheme.Scheme.PrioritizedVersionsAllGroups()...)
-
+	f, tf, codec, _ := cmdtesting.NewAPIFactory()
+	tf.Printer = &testPrinter{}
 	tf.UnstructuredClient = &fake.RESTClient{
 		GroupVersion:         schema.GroupVersion{Group: "testgroup", Version: "v1"},
 		NegotiatedSerializer: unstructuredSerializer,
@@ -537,29 +528,28 @@ func TestAnnotateObjectFromFile(t *testing.T) {
 			}
 		}),
 	}
-	tf.ClientConfigVal = defaultClientConfig()
+	tf.Namespace = "test"
+	tf.ClientConfig = defaultClientConfig()
 
-	iostreams, _, bufOut, _ := genericclioptions.NewTestIOStreams()
-	cmd := NewCmdAnnotate("kubectl", tf, iostreams)
-	cmd.SetOutput(bufOut)
-	options := NewAnnotateOptions(iostreams)
-	options.Filenames = []string{"../../../test/e2e/testing-manifests/statefulset/cassandra/controller.yaml"}
+	buf := bytes.NewBuffer([]byte{})
+	cmd := NewCmdAnnotate(f, buf)
+	cmd.SetOutput(buf)
+	options := &AnnotateOptions{}
+	options.Filenames = []string{"../../../examples/storage/cassandra/cassandra-controller.yaml"}
 	args := []string{"a=b", "c-"}
-	if err := options.Complete(tf, cmd, args); err != nil {
+	if err := options.Complete(buf, cmd, args); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if err := options.Validate(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if err := options.RunAnnotate(); err != nil {
+	if err := options.RunAnnotate(f, cmd); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
 func TestAnnotateLocal(t *testing.T) {
-	tf := cmdtesting.NewTestFactory().WithNamespace("test")
-	defer tf.Cleanup()
-
+	f, tf, _, _ := cmdtesting.NewAPIFactory()
 	tf.UnstructuredClient = &fake.RESTClient{
 		GroupVersion:         schema.GroupVersion{Group: "testgroup", Version: "v1"},
 		NegotiatedSerializer: unstructuredSerializer,
@@ -568,21 +558,22 @@ func TestAnnotateLocal(t *testing.T) {
 			return nil, nil
 		}),
 	}
-	tf.ClientConfigVal = defaultClientConfig()
+	tf.Namespace = "test"
+	tf.ClientConfig = defaultClientConfig()
 
-	iostreams, _, _, _ := genericclioptions.NewTestIOStreams()
-	cmd := NewCmdAnnotate("kubectl", tf, iostreams)
-	options := NewAnnotateOptions(iostreams)
-	options.local = true
-	options.Filenames = []string{"../../../test/e2e/testing-manifests/statefulset/cassandra/controller.yaml"}
+	buf := bytes.NewBuffer([]byte{})
+	cmd := NewCmdAnnotate(f, buf)
+	cmd.Flags().Set("local", "true")
+	options := &AnnotateOptions{}
+	options.Filenames = []string{"../../../examples/storage/cassandra/cassandra-controller.yaml"}
 	args := []string{"a=b"}
-	if err := options.Complete(tf, cmd, args); err != nil {
+	if err := options.Complete(buf, cmd, args); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if err := options.Validate(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if err := options.RunAnnotate(); err != nil {
+	if err := options.RunAnnotate(f, cmd); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -590,10 +581,8 @@ func TestAnnotateLocal(t *testing.T) {
 func TestAnnotateMultipleObjects(t *testing.T) {
 	pods, _, _ := testData()
 
-	tf := cmdtesting.NewTestFactory().WithNamespace("test")
-	defer tf.Cleanup()
-
-	codec := legacyscheme.Codecs.LegacyCodec(scheme.Scheme.PrioritizedVersionsAllGroups()...)
+	f, tf, codec, _ := cmdtesting.NewAPIFactory()
+	tf.Printer = &testPrinter{}
 	tf.UnstructuredClient = &fake.RESTClient{
 		GroupVersion:         schema.GroupVersion{Group: "testgroup", Version: "v1"},
 		NegotiatedSerializer: unstructuredSerializer,
@@ -623,21 +612,22 @@ func TestAnnotateMultipleObjects(t *testing.T) {
 			}
 		}),
 	}
-	tf.ClientConfigVal = defaultClientConfig()
+	tf.Namespace = "test"
+	tf.ClientConfig = defaultClientConfig()
 
-	iostreams, _, _, _ := genericclioptions.NewTestIOStreams()
-	cmd := NewCmdAnnotate("kubectl", tf, iostreams)
-	cmd.SetOutput(iostreams.Out)
-	options := NewAnnotateOptions(iostreams)
-	options.all = true
+	buf := bytes.NewBuffer([]byte{})
+	cmd := NewCmdAnnotate(f, buf)
+	cmd.SetOutput(buf)
+	cmd.Flags().Set("all", "true")
+	options := &AnnotateOptions{}
 	args := []string{"pods", "a=b", "c-"}
-	if err := options.Complete(tf, cmd, args); err != nil {
+	if err := options.Complete(buf, cmd, args); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if err := options.Validate(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if err := options.RunAnnotate(); err != nil {
+	if err := options.RunAnnotate(f, cmd); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

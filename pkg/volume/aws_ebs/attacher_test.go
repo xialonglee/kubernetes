@@ -76,14 +76,15 @@ type testcase struct {
 func TestAttachDetach(t *testing.T) {
 	diskName := aws.KubernetesVolumeID("disk")
 	nodeName := types.NodeName("instance")
-	spec := createVolSpec(diskName, false)
+	readOnly := false
+	spec := createVolSpec(diskName, readOnly)
 	attachError := errors.New("Fake attach error")
 	detachError := errors.New("Fake detach error")
 	tests := []testcase{
 		// Successful Attach call
 		{
 			name:   "Attach_Positive",
-			attach: attachCall{diskName, nodeName, "/dev/sda", nil},
+			attach: attachCall{diskName, nodeName, readOnly, "/dev/sda", nil},
 			test: func(testcase *testcase) (string, error) {
 				attacher := newAttacher(testcase)
 				return attacher.Attach(spec, nodeName)
@@ -94,7 +95,7 @@ func TestAttachDetach(t *testing.T) {
 		// Attach call fails
 		{
 			name:   "Attach_Negative",
-			attach: attachCall{diskName, nodeName, "", attachError},
+			attach: attachCall{diskName, nodeName, readOnly, "", attachError},
 			test: func(testcase *testcase) (string, error) {
 				attacher := newAttacher(testcase)
 				return attacher.Attach(spec, nodeName)
@@ -194,6 +195,7 @@ func createPVSpec(name aws.KubernetesVolumeID, readOnly bool) *volume.Spec {
 type attachCall struct {
 	diskName      aws.KubernetesVolumeID
 	nodeName      types.NodeName
+	readOnly      bool
 	retDeviceName string
 	ret           error
 }
@@ -212,7 +214,7 @@ type diskIsAttachedCall struct {
 	ret        error
 }
 
-func (testcase *testcase) AttachDisk(diskName aws.KubernetesVolumeID, nodeName types.NodeName) (string, error) {
+func (testcase *testcase) AttachDisk(diskName aws.KubernetesVolumeID, nodeName types.NodeName, readOnly bool) (string, error) {
 	expected := &testcase.attach
 
 	if expected.diskName == "" && expected.nodeName == "" {
@@ -232,7 +234,12 @@ func (testcase *testcase) AttachDisk(diskName aws.KubernetesVolumeID, nodeName t
 		return "", errors.New("Unexpected AttachDisk call: wrong nodeName")
 	}
 
-	glog.V(4).Infof("AttachDisk call: %s, %s, returning %q, %v", diskName, nodeName, expected.retDeviceName, expected.ret)
+	if expected.readOnly != readOnly {
+		testcase.t.Errorf("Unexpected AttachDisk call: expected readOnly %v, got %v", expected.readOnly, readOnly)
+		return "", errors.New("Unexpected AttachDisk call: wrong readOnly")
+	}
+
+	glog.V(4).Infof("AttachDisk call: %s, %s, %v, returning %q, %v", diskName, nodeName, readOnly, expected.retDeviceName, expected.ret)
 
 	return expected.retDeviceName, expected.ret
 }

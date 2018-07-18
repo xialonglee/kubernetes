@@ -9,7 +9,8 @@ load(
 go_test(
     name = "go_default_test",
     srcs = ["kubeconfig_test.go"],
-    embed = [":go_default_library"],
+    importpath = "k8s.io/kubernetes/cmd/kubeadm/app/util/kubeconfig",
+    library = ":go_default_library",
 )
 
 go_library(
@@ -17,9 +18,9 @@ go_library(
     srcs = ["kubeconfig.go"],
     importpath = "k8s.io/kubernetes/cmd/kubeadm/app/util/kubeconfig",
     deps = [
-        "//staging/src/k8s.io/client-go/kubernetes:go_default_library",
-        "//staging/src/k8s.io/client-go/tools/clientcmd:go_default_library",
-        "//staging/src/k8s.io/client-go/tools/clientcmd/api:go_default_library",
+        "//vendor/k8s.io/client-go/kubernetes:go_default_library",
+        "//vendor/k8s.io/client-go/tools/clientcmd:go_default_library",
+        "//vendor/k8s.io/client-go/tools/clientcmd/api:go_default_library",
     ],
 )
 

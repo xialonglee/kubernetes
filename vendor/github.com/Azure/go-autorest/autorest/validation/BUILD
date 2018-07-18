@@ -2,11 +2,7 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library")
 
 go_library(
     name = "go_default_library",
-    srcs = [
-        "error.go",
-        "validation.go",
-    ],
-    importmap = "k8s.io/kubernetes/vendor/github.com/Azure/go-autorest/autorest/validation",
+    srcs = ["validation.go"],
     importpath = "github.com/Azure/go-autorest/autorest/validation",
     visibility = ["//visibility:public"],
 )

@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
 # Copyright 2016 The Kubernetes Authors.
 #
@@ -53,6 +53,11 @@ function kube-up {
 # Delete a kubernetes cluster
 function kube-down {
 	echo "Skeleton Provider: kube-down not implemented" 1>&2
+}
+
+# Update a kubernetes cluster
+function kube-push {
+	echo "Skeleton Provider: kube-push not implemented" 1>&2
 }
 
 # Prepare update a kubernetes component

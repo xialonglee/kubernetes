@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 # Copyright 2017 The Kubernetes Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -36,3 +36,4 @@ TEST_CLUSTER_API_CONTENT_TYPE="${TEST_CLUSTER_API_CONTENT_TYPE:-}"
 KUBELET_TEST_LOG_LEVEL="${KUBELET_TEST_LOG_LEVEL:-}"
 KUBEPROXY_TEST_LOG_LEVEL="${KUBEPROXY_TEST_LOG_LEVEL:-}"
 MASTER_NAME="${MASTER_NAME:-}"
+USE_REAL_PROXIER="${USE_REAL_PROXIER:-true}"

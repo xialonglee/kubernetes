@@ -22,13 +22,6 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
-	"time"
-
-	netutil "k8s.io/apimachinery/pkg/util/net"
-)
-
-const (
-	getReleaseVersionTimeout = time.Duration(10 * time.Second)
 )
 
 var (
@@ -74,7 +67,7 @@ func KubernetesReleaseVersion(version string) (string, error) {
 
 	if kubeReleaseLabelRegex.MatchString(versionLabel) {
 		url := fmt.Sprintf("%s/%s.txt", bucketURL, versionLabel)
-		body, err := fetchFromURL(url, getReleaseVersionTimeout)
+		body, err := fetchFromURL(url)
 		if err != nil {
 			return "", err
 		}
@@ -127,8 +120,8 @@ func splitVersion(version string) (string, string, error) {
 
 	switch {
 	case strings.HasPrefix(subs[0][2], "ci"):
-		// Just use whichever the user specified
-		urlSuffix = subs[0][2]
+		// Special case. CI images populated only by ci-cross area
+		urlSuffix = "ci-cross"
 	default:
 		urlSuffix = "release"
 	}
@@ -137,9 +130,8 @@ func splitVersion(version string) (string, string, error) {
 }
 
 // Internal helper: return content of URL
-func fetchFromURL(url string, timeout time.Duration) (string, error) {
-	client := &http.Client{Timeout: timeout, Transport: netutil.SetOldTransportDefaults(&http.Transport{})}
-	resp, err := client.Get(url)
+func fetchFromURL(url string) (string, error) {
+	resp, err := http.Get(url)
 	if err != nil {
 		return "", fmt.Errorf("unable to get URL %q: %s", url, err.Error())
 	}

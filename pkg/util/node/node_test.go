@@ -61,13 +61,13 @@ func TestGetPreferredAddress(t *testing.T) {
 			Preferences:   []v1.NodeAddressType{v1.NodeHostName, v1.NodeExternalIP},
 			ExpectAddress: "status-hostname",
 		},
-		"label address ignored": {
+		"found label address": {
 			Labels: map[string]string{kubeletapis.LabelHostname: "label-hostname"},
 			Addresses: []v1.NodeAddress{
 				{Type: v1.NodeExternalIP, Address: "1.2.3.5"},
 			},
 			Preferences:   []v1.NodeAddressType{v1.NodeHostName, v1.NodeExternalIP},
-			ExpectAddress: "1.2.3.5",
+			ExpectAddress: "label-hostname",
 		},
 	}
 

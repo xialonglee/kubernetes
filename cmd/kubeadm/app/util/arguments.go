@@ -18,32 +18,17 @@ package util
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 )
 
-// BuildArgumentListFromMap takes two string-string maps, one with the base arguments and one
-// with optional override arguments. In the return list override arguments will precede base
-// arguments
+// BuildArgumentListFromMap takes two string-string maps, one with the base arguments and one with optional override arguments
 func BuildArgumentListFromMap(baseArguments map[string]string, overrideArguments map[string]string) []string {
 	var command []string
-	var keys []string
-	for k := range overrideArguments {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		v := overrideArguments[k]
+	for k, v := range overrideArguments {
 		// values of "" are allowed as well
 		command = append(command, fmt.Sprintf("--%s=%s", k, v))
 	}
-	keys = []string{}
-	for k := range baseArguments {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		v := baseArguments[k]
+	for k, v := range baseArguments {
 		if _, overrideExists := overrideArguments[k]; !overrideExists {
 			command = append(command, fmt.Sprintf("--%s=%s", k, v))
 		}

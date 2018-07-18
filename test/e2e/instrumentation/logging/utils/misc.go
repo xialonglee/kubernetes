@@ -26,7 +26,7 @@ func GetNodeIds(cs clientset.Interface) []string {
 	nodes := framework.GetReadySchedulableNodesOrDie(cs)
 	nodeIds := []string{}
 	for _, n := range nodes.Items {
-		nodeIds = append(nodeIds, n.Name)
+		nodeIds = append(nodeIds, n.Spec.ExternalID)
 	}
 	return nodeIds
 }

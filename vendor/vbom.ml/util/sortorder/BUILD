@@ -6,7 +6,6 @@ go_library(
         "doc.go",
         "natsort.go",
     ],
-    importmap = "k8s.io/kubernetes/vendor/vbom.ml/util/sortorder",
     importpath = "vbom.ml/util/sortorder",
     visibility = ["//visibility:public"],
 )

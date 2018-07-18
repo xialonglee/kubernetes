@@ -5,11 +5,16 @@ go_library(
     srcs = [
         "config.go",
         "devicetoken.go",
+        "msi.go",
         "persist.go",
         "sender.go",
         "token.go",
-    ],
-    importmap = "k8s.io/kubernetes/vendor/github.com/Azure/go-autorest/autorest/adal",
+    ] + select({
+        "@io_bazel_rules_go//go/platform:windows_amd64": [
+            "msi_windows.go",
+        ],
+        "//conditions:default": [],
+    }),
     importpath = "github.com/Azure/go-autorest/autorest/adal",
     visibility = ["//visibility:public"],
     deps = [

@@ -7,7 +7,6 @@ go_library(
         "doc.go",
         "retry.go",
     ],
-    importmap = "k8s.io/kubernetes/vendor/github.com/vmware/govmomi/vim25",
     importpath = "github.com/vmware/govmomi/vim25",
     visibility = ["//visibility:public"],
     deps = [

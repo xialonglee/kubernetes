@@ -9,7 +9,6 @@ go_library(
         "reader.go",
     ],
     cgo = True,
-    importmap = "k8s.io/kubernetes/vendor/github.com/google/cadvisor/utils/cpuload/netlink",
     importpath = "github.com/google/cadvisor/utils/cpuload/netlink",
     visibility = ["//visibility:public"],
     deps = [

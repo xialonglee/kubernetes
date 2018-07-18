@@ -5,10 +5,13 @@ go_library(
     srcs = [
         "common.go",
         "common_unix.go",
-        "common_windows.go",
         "names.go",
-    ],
-    importmap = "k8s.io/kubernetes/vendor/github.com/docker/docker/api",
+    ] + select({
+        "@io_bazel_rules_go//go/platform:windows_amd64": [
+            "common_windows.go",
+        ],
+        "//conditions:default": [],
+    }),
     importpath = "github.com/docker/docker/api",
     visibility = ["//visibility:public"],
     deps = [

@@ -17,6 +17,7 @@ limitations under the License.
 package set
 
 import (
+	"bytes"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -34,50 +35,46 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/runtime/serializer"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/rest/fake"
 	"k8s.io/kubernetes/pkg/api/testapi"
+	"k8s.io/kubernetes/pkg/kubectl/categories"
 	cmdtesting "k8s.io/kubernetes/pkg/kubectl/cmd/testing"
-	"k8s.io/kubernetes/pkg/kubectl/genericclioptions"
-	"k8s.io/kubernetes/pkg/kubectl/genericclioptions/resource"
+	"k8s.io/kubernetes/pkg/kubectl/resource"
 	"k8s.io/kubernetes/pkg/kubectl/scheme"
+	"k8s.io/kubernetes/pkg/printers"
 )
 
 func TestResourcesLocal(t *testing.T) {
-	tf := cmdtesting.NewTestFactory().WithNamespace("test")
-	defer tf.Cleanup()
-
+	f, tf, codec, ns := cmdtesting.NewAPIFactory()
 	tf.Client = &fake.RESTClient{
 		GroupVersion:         schema.GroupVersion{Version: ""},
-		NegotiatedSerializer: serializer.DirectCodecFactory{CodecFactory: scheme.Codecs},
+		NegotiatedSerializer: ns,
 		Client: fake.CreateHTTPClient(func(req *http.Request) (*http.Response, error) {
 			t.Fatalf("unexpected request: %s %#v\n%#v", req.Method, req.URL, req)
 			return nil, nil
 		}),
 	}
-	tf.ClientConfigVal = &restclient.Config{ContentConfig: restclient.ContentConfig{GroupVersion: &schema.GroupVersion{Version: ""}}}
+	tf.Namespace = "test"
+	tf.ClientConfig = &restclient.Config{ContentConfig: restclient.ContentConfig{GroupVersion: &schema.GroupVersion{Version: ""}}}
 
-	outputFormat := "name"
-
-	streams, _, buf, _ := genericclioptions.NewTestIOStreams()
-	cmd := NewCmdResources(tf, streams)
+	buf := bytes.NewBuffer([]byte{})
+	cmd := NewCmdResources(f, buf, buf)
 	cmd.SetOutput(buf)
-	cmd.Flags().Set("output", outputFormat)
+	cmd.Flags().Set("output", "name")
 	cmd.Flags().Set("local", "true")
+	mapper, typer := f.Object()
+	tf.Printer = &printers.NamePrinter{Decoders: []runtime.Decoder{codec}, Typer: typer, Mapper: mapper}
 
-	opts := SetResourcesOptions{
-		PrintFlags: genericclioptions.NewPrintFlags("").WithDefaultOutput(outputFormat).WithTypeSetter(scheme.Scheme),
-		FilenameOptions: resource.FilenameOptions{
-			Filenames: []string{"../../../../test/e2e/testing-manifests/statefulset/cassandra/controller.yaml"}},
+	opts := ResourcesOptions{FilenameOptions: resource.FilenameOptions{
+		Filenames: []string{"../../../../examples/storage/cassandra/cassandra-controller.yaml"}},
+		Out:               buf,
 		Local:             true,
 		Limits:            "cpu=200m,memory=512Mi",
 		Requests:          "cpu=200m,memory=512Mi",
-		ContainerSelector: "*",
-		IOStreams:         streams,
-	}
+		ContainerSelector: "*"}
 
-	err := opts.Complete(tf, cmd, []string{})
+	err := opts.Complete(f, cmd, []string{})
 	if err == nil {
 		err = opts.Validate()
 	}
@@ -87,45 +84,41 @@ func TestResourcesLocal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(buf.String(), "replicationcontroller/cassandra") {
+	if !strings.Contains(buf.String(), "replicationcontrollers/cassandra") {
 		t.Errorf("did not set resources: %s", buf.String())
 	}
 }
 
 func TestSetMultiResourcesLimitsLocal(t *testing.T) {
-	tf := cmdtesting.NewTestFactory().WithNamespace("test")
-	defer tf.Cleanup()
-
+	f, tf, codec, ns := cmdtesting.NewAPIFactory()
 	tf.Client = &fake.RESTClient{
 		GroupVersion:         schema.GroupVersion{Version: ""},
-		NegotiatedSerializer: serializer.DirectCodecFactory{CodecFactory: scheme.Codecs},
+		NegotiatedSerializer: ns,
 		Client: fake.CreateHTTPClient(func(req *http.Request) (*http.Response, error) {
 			t.Fatalf("unexpected request: %s %#v\n%#v", req.Method, req.URL, req)
 			return nil, nil
 		}),
 	}
-	tf.ClientConfigVal = &restclient.Config{ContentConfig: restclient.ContentConfig{GroupVersion: &schema.GroupVersion{Version: ""}}}
+	tf.Namespace = "test"
+	tf.ClientConfig = &restclient.Config{ContentConfig: restclient.ContentConfig{GroupVersion: &schema.GroupVersion{Version: ""}}}
 
-	outputFormat := "name"
-
-	streams, _, buf, _ := genericclioptions.NewTestIOStreams()
-	cmd := NewCmdResources(tf, streams)
+	buf := bytes.NewBuffer([]byte{})
+	cmd := NewCmdResources(f, buf, buf)
 	cmd.SetOutput(buf)
-	cmd.Flags().Set("output", outputFormat)
+	cmd.Flags().Set("output", "name")
 	cmd.Flags().Set("local", "true")
+	mapper, typer := f.Object()
+	tf.Printer = &printers.NamePrinter{Decoders: []runtime.Decoder{codec}, Typer: typer, Mapper: mapper}
 
-	opts := SetResourcesOptions{
-		PrintFlags: genericclioptions.NewPrintFlags("").WithDefaultOutput(outputFormat).WithTypeSetter(scheme.Scheme),
-		FilenameOptions: resource.FilenameOptions{
-			Filenames: []string{"../../../../test/fixtures/pkg/kubectl/cmd/set/multi-resource-yaml.yaml"}},
+	opts := ResourcesOptions{FilenameOptions: resource.FilenameOptions{
+		Filenames: []string{"../../../../test/fixtures/pkg/kubectl/cmd/set/multi-resource-yaml.yaml"}},
+		Out:               buf,
 		Local:             true,
 		Limits:            "cpu=200m,memory=512Mi",
 		Requests:          "cpu=200m,memory=512Mi",
-		ContainerSelector: "*",
-		IOStreams:         streams,
-	}
+		ContainerSelector: "*"}
 
-	err := opts.Complete(tf, cmd, []string{})
+	err := opts.Complete(f, cmd, []string{})
 	if err == nil {
 		err = opts.Validate()
 	}
@@ -135,7 +128,7 @@ func TestSetMultiResourcesLimitsLocal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	expectedOut := "replicationcontroller/first-rc\nreplicationcontroller/second-rc\n"
+	expectedOut := "replicationcontrollers/first-rc\nreplicationcontrollers/second-rc\n"
 	if buf.String() != expectedOut {
 		t.Errorf("expected out:\n%s\nbut got:\n%s", expectedOut, buf.String())
 	}
@@ -453,17 +446,20 @@ func TestSetResourcesRemote(t *testing.T) {
 		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
 			groupVersion := schema.GroupVersion{Group: input.apiGroup, Version: input.apiVersion}
 			testapi.Default = testapi.Groups[input.testAPIGroup]
-			tf := cmdtesting.NewTestFactory().WithNamespace("test")
-			defer tf.Cleanup()
-
+			f, tf, _, ns := cmdtesting.NewAPIFactory()
+			codec := scheme.Codecs.CodecForVersions(scheme.Codecs.LegacyCodec(groupVersion), scheme.Codecs.UniversalDecoder(groupVersion), groupVersion, groupVersion)
+			mapper, typer := f.Object()
+			tf.Printer = &printers.NamePrinter{Decoders: []runtime.Decoder{testapi.Default.Codec()}, Typer: typer, Mapper: mapper}
+			tf.Namespace = "test"
+			tf.CategoryExpander = categories.LegacyCategoryExpander
 			tf.Client = &fake.RESTClient{
 				GroupVersion:         groupVersion,
-				NegotiatedSerializer: serializer.DirectCodecFactory{CodecFactory: scheme.Codecs},
+				NegotiatedSerializer: ns,
 				Client: fake.CreateHTTPClient(func(req *http.Request) (*http.Response, error) {
-					resourcePath := testapi.Default.ResourcePath(input.args[0]+"s", "test", input.args[1])
+					resourcePath := testapi.Default.ResourcePath(input.args[0]+"s", tf.Namespace, input.args[1])
 					switch p, m := req.URL.Path, req.Method; {
 					case p == resourcePath && m == http.MethodGet:
-						return &http.Response{StatusCode: http.StatusOK, Header: defaultHeader(), Body: objBody(input.object)}, nil
+						return &http.Response{StatusCode: http.StatusOK, Header: defaultHeader(), Body: objBody(codec, input.object)}, nil
 					case p == resourcePath && m == http.MethodPatch:
 						stream, err := req.GetBody()
 						if err != nil {
@@ -474,7 +470,7 @@ func TestSetResourcesRemote(t *testing.T) {
 							return nil, err
 						}
 						assert.Contains(t, string(bytes), "200m", fmt.Sprintf("resources not updated for %#v", input.object))
-						return &http.Response{StatusCode: http.StatusOK, Header: defaultHeader(), Body: objBody(input.object)}, nil
+						return &http.Response{StatusCode: http.StatusOK, Header: defaultHeader(), Body: objBody(codec, input.object)}, nil
 					default:
 						t.Errorf("%s: unexpected request: %s %#v\n%#v", "resources", req.Method, req.URL, req)
 						return nil, fmt.Errorf("unexpected request")
@@ -482,20 +478,16 @@ func TestSetResourcesRemote(t *testing.T) {
 				}),
 				VersionedAPIPath: path.Join(input.apiPrefix, testapi.Default.GroupVersion().String()),
 			}
-
-			outputFormat := "yaml"
-
-			streams := genericclioptions.NewTestIOStreamsDiscard()
-			cmd := NewCmdResources(tf, streams)
-			cmd.Flags().Set("output", outputFormat)
-			opts := SetResourcesOptions{
-				PrintFlags: genericclioptions.NewPrintFlags("").WithDefaultOutput(outputFormat).WithTypeSetter(scheme.Scheme),
-
+			buf := new(bytes.Buffer)
+			cmd := NewCmdResources(f, buf, buf)
+			cmd.SetOutput(buf)
+			cmd.Flags().Set("output", "yaml")
+			opts := ResourcesOptions{
+				Out:               buf,
+				Local:             true,
 				Limits:            "cpu=200m,memory=512Mi",
-				ContainerSelector: "*",
-				IOStreams:         streams,
-			}
-			err := opts.Complete(tf, cmd, input.args)
+				ContainerSelector: "*"}
+			err := opts.Complete(f, cmd, input.args)
 			if err == nil {
 				err = opts.Validate()
 			}

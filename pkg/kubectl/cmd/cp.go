@@ -18,6 +18,7 @@ package cmd
 
 import (
 	"archive/tar"
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -27,14 +28,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	restclient "k8s.io/client-go/rest"
-	"k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset"
 	"k8s.io/kubernetes/pkg/kubectl/cmd/templates"
 	cmdutil "k8s.io/kubernetes/pkg/kubectl/cmd/util"
-	"k8s.io/kubernetes/pkg/kubectl/genericclioptions"
 	"k8s.io/kubernetes/pkg/kubectl/util/i18n"
-
-	"bytes"
 
 	"github.com/renstrom/dedent"
 	"github.com/spf13/cobra"
@@ -65,38 +61,18 @@ var (
 		/file/path for a local file`)
 )
 
-type CopyOptions struct {
-	Container string
-	Namespace string
-
-	ClientConfig *restclient.Config
-	Clientset    internalclientset.Interface
-
-	genericclioptions.IOStreams
-}
-
-func NewCopyOptions(ioStreams genericclioptions.IOStreams) *CopyOptions {
-	return &CopyOptions{
-		IOStreams: ioStreams,
-	}
-}
-
 // NewCmdCp creates a new Copy command.
-func NewCmdCp(f cmdutil.Factory, ioStreams genericclioptions.IOStreams) *cobra.Command {
-	o := NewCopyOptions(ioStreams)
-
+func NewCmdCp(f cmdutil.Factory, cmdOut, cmdErr io.Writer) *cobra.Command {
 	cmd := &cobra.Command{
-		Use: "cp <file-spec-src> <file-spec-dest>",
-		DisableFlagsInUseLine: true,
+		Use:     "cp <file-spec-src> <file-spec-dest>",
 		Short:   i18n.T("Copy files and directories to and from containers."),
 		Long:    "Copy files and directories to and from containers.",
 		Example: cpExample,
 		Run: func(cmd *cobra.Command, args []string) {
-			cmdutil.CheckErr(o.Complete(f, cmd))
-			cmdutil.CheckErr(o.Run(args))
+			cmdutil.CheckErr(runCopy(f, cmd, cmdOut, cmdErr, args))
 		},
 	}
-	cmd.Flags().StringVarP(&o.Container, "container", "c", o.Container, "Container name. If omitted, the first container in the pod will be chosen")
+	cmd.Flags().StringP("container", "c", "", "Container name. If omitted, the first container in the pod will be chosen")
 
 	return cmd
 }
@@ -113,59 +89,38 @@ var (
 )
 
 func extractFileSpec(arg string) (fileSpec, error) {
-	if i := strings.Index(arg, ":"); i == -1 {
+	pieces := strings.Split(arg, ":")
+	if len(pieces) == 1 {
 		return fileSpec{File: arg}, nil
-	} else if i > 0 {
-		file := arg[i+1:]
-		pod := arg[:i]
-		pieces := strings.Split(pod, "/")
-		if len(pieces) == 1 {
-			return fileSpec{
-				PodName: pieces[0],
-				File:    file,
-			}, nil
-		}
-		if len(pieces) == 2 {
-			return fileSpec{
-				PodNamespace: pieces[0],
-				PodName:      pieces[1],
-				File:         file,
-			}, nil
-		}
+	}
+	if len(pieces) != 2 {
+		// FIXME Kubernetes can't copy files that contain a ':'
+		// character.
+		return fileSpec{}, errFileSpecDoesntMatchFormat
+	}
+	file := pieces[1]
+
+	pieces = strings.Split(pieces[0], "/")
+	if len(pieces) == 1 {
+		return fileSpec{
+			PodName: pieces[0],
+			File:    file,
+		}, nil
+	}
+	if len(pieces) == 2 {
+		return fileSpec{
+			PodNamespace: pieces[0],
+			PodName:      pieces[1],
+			File:         file,
+		}, nil
 	}
 
 	return fileSpec{}, errFileSpecDoesntMatchFormat
 }
 
-func (o *CopyOptions) Complete(f cmdutil.Factory, cmd *cobra.Command) error {
-	var err error
-	o.Namespace, _, err = f.ToRawKubeConfigLoader().Namespace()
-	if err != nil {
-		return err
-	}
-
-	o.Clientset, err = f.ClientSet()
-	if err != nil {
-		return err
-	}
-
-	o.ClientConfig, err = f.ToRESTConfig()
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func (o *CopyOptions) Validate(cmd *cobra.Command, args []string) error {
+func runCopy(f cmdutil.Factory, cmd *cobra.Command, out, cmderr io.Writer, args []string) error {
 	if len(args) != 2 {
 		return cmdutil.UsageErrorf(cmd, cpUsageStr)
-	}
-	return nil
-}
-
-func (o *CopyOptions) Run(args []string) error {
-	if len(args) < 2 {
-		return fmt.Errorf("source and destination are required")
 	}
 	srcSpec, err := extractFileSpec(args[0])
 	if err != nil {
@@ -175,34 +130,24 @@ func (o *CopyOptions) Run(args []string) error {
 	if err != nil {
 		return err
 	}
-
-	if len(srcSpec.PodName) != 0 && len(destSpec.PodName) != 0 {
-		if _, err := os.Stat(args[0]); err == nil {
-			return o.copyToPod(fileSpec{File: args[0]}, destSpec)
-		}
-		return fmt.Errorf("src doesn't exist in local filesystem")
-	}
-
 	if len(srcSpec.PodName) != 0 {
-		return o.copyFromPod(srcSpec, destSpec)
+		return copyFromPod(f, cmd, cmderr, srcSpec, destSpec)
 	}
 	if len(destSpec.PodName) != 0 {
-		return o.copyToPod(srcSpec, destSpec)
+		return copyToPod(f, cmd, out, cmderr, srcSpec, destSpec)
 	}
-	return fmt.Errorf("one of src or dest must be a remote file specification")
+	return cmdutil.UsageErrorf(cmd, "One of src or dest must be a remote file specification")
 }
 
 // checkDestinationIsDir receives a destination fileSpec and
 // determines if the provided destination path exists on the
 // pod. If the destination path does not exist or is _not_ a
 // directory, an error is returned with the exit code received.
-func (o *CopyOptions) checkDestinationIsDir(dest fileSpec) error {
+func checkDestinationIsDir(dest fileSpec, f cmdutil.Factory, cmd *cobra.Command) error {
 	options := &ExecOptions{
 		StreamOptions: StreamOptions{
-			IOStreams: genericclioptions.IOStreams{
-				Out:    bytes.NewBuffer([]byte{}),
-				ErrOut: bytes.NewBuffer([]byte{}),
-			},
+			Out: bytes.NewBuffer([]byte{}),
+			Err: bytes.NewBuffer([]byte{}),
 
 			Namespace: dest.PodNamespace,
 			PodName:   dest.PodName,
@@ -212,21 +157,21 @@ func (o *CopyOptions) checkDestinationIsDir(dest fileSpec) error {
 		Executor: &DefaultRemoteExecutor{},
 	}
 
-	return o.execute(options)
+	return execute(f, cmd, options)
 }
 
-func (o *CopyOptions) copyToPod(src, dest fileSpec) error {
-	if len(src.File) == 0 || len(dest.File) == 0 {
+func copyToPod(f cmdutil.Factory, cmd *cobra.Command, stdout, stderr io.Writer, src, dest fileSpec) error {
+	if len(src.File) == 0 {
 		return errFileCannotBeEmpty
 	}
 	reader, writer := io.Pipe()
 
 	// strip trailing slash (if any)
-	if dest.File != "/" && strings.HasSuffix(string(dest.File[len(dest.File)-1]), "/") {
+	if strings.HasSuffix(string(dest.File[len(dest.File)-1]), "/") {
 		dest.File = dest.File[:len(dest.File)-1]
 	}
 
-	if err := o.checkDestinationIsDir(dest); err == nil {
+	if err := checkDestinationIsDir(dest, f, cmd); err == nil {
 		// If no error, dest.File was found to be a directory.
 		// Copy specified src into it
 		dest.File = dest.File + "/" + path.Base(src.File)
@@ -247,11 +192,9 @@ func (o *CopyOptions) copyToPod(src, dest fileSpec) error {
 
 	options := &ExecOptions{
 		StreamOptions: StreamOptions{
-			IOStreams: genericclioptions.IOStreams{
-				In:     reader,
-				Out:    o.Out,
-				ErrOut: o.ErrOut,
-			},
+			In:    reader,
+			Out:   stdout,
+			Err:   stderr,
 			Stdin: true,
 
 			Namespace: dest.PodNamespace,
@@ -261,22 +204,20 @@ func (o *CopyOptions) copyToPod(src, dest fileSpec) error {
 		Command:  cmdArr,
 		Executor: &DefaultRemoteExecutor{},
 	}
-	return o.execute(options)
+	return execute(f, cmd, options)
 }
 
-func (o *CopyOptions) copyFromPod(src, dest fileSpec) error {
-	if len(src.File) == 0 || len(dest.File) == 0 {
+func copyFromPod(f cmdutil.Factory, cmd *cobra.Command, cmderr io.Writer, src, dest fileSpec) error {
+	if len(src.File) == 0 {
 		return errFileCannotBeEmpty
 	}
 
 	reader, outStream := io.Pipe()
 	options := &ExecOptions{
 		StreamOptions: StreamOptions{
-			IOStreams: genericclioptions.IOStreams{
-				In:     nil,
-				Out:    outStream,
-				ErrOut: o.Out,
-			},
+			In:  nil,
+			Out: outStream,
+			Err: cmderr,
 
 			Namespace: src.PodNamespace,
 			PodName:   src.PodName,
@@ -289,24 +230,11 @@ func (o *CopyOptions) copyFromPod(src, dest fileSpec) error {
 
 	go func() {
 		defer outStream.Close()
-		o.execute(options)
+		execute(f, cmd, options)
 	}()
 	prefix := getPrefix(src.File)
 	prefix = path.Clean(prefix)
-	// remove extraneous path shortcuts - these could occur if a path contained extra "../"
-	// and attempted to navigate beyond "/" in a remote filesystem
-	prefix = stripPathShortcuts(prefix)
 	return untarAll(reader, dest.File, prefix)
-}
-
-// stripPathShortcuts removes any leading or trailing "../" from a given path
-func stripPathShortcuts(p string) string {
-	newPath := path.Clean(p)
-	if len(newPath) > 0 && string(newPath[0]) == "/" {
-		return newPath[1:]
-	}
-
-	return newPath
 }
 
 func makeTar(srcPath, destPath string, writer io.Writer) error {
@@ -383,12 +311,6 @@ func recursiveTar(srcBase, srcFile, destBase, destFile string, tw *tar.Writer) e
 	return nil
 }
 
-// clean prevents path traversals by stripping them out.
-// This is adapted from https://golang.org/src/net/http/fs.go#L74
-func clean(fileName string) string {
-	return path.Clean(string(os.PathSeparator) + fileName)
-}
-
 func untarAll(reader io.Reader, destFile, prefix string) error {
 	entrySeq := -1
 
@@ -404,7 +326,7 @@ func untarAll(reader io.Reader, destFile, prefix string) error {
 		}
 		entrySeq++
 		mode := header.FileInfo().Mode()
-		outFileName := path.Join(destFile, clean(header.Name[len(prefix):]))
+		outFileName := path.Join(destFile, header.Name[len(prefix):])
 		baseName := path.Dir(outFileName)
 		if err := os.MkdirAll(baseName, 0755); err != nil {
 			return err
@@ -423,7 +345,7 @@ func untarAll(reader io.Reader, destFile, prefix string) error {
 				return err
 			}
 			if exists {
-				outFileName = filepath.Join(outFileName, path.Base(clean(header.Name)))
+				outFileName = filepath.Join(outFileName, path.Base(header.Name))
 			}
 		}
 
@@ -456,21 +378,38 @@ func untarAll(reader io.Reader, destFile, prefix string) error {
 }
 
 func getPrefix(file string) string {
-	// tar strips the leading '/' if it's there, so we will too
-	return strings.TrimLeft(file, "/")
+	if file[0] == '/' {
+		// tar strips the leading '/' if it's there, so we will too
+		return file[1:]
+	}
+	return file
 }
 
-func (o *CopyOptions) execute(options *ExecOptions) error {
+func execute(f cmdutil.Factory, cmd *cobra.Command, options *ExecOptions) error {
 	if len(options.Namespace) == 0 {
-		options.Namespace = o.Namespace
+		namespace, _, err := f.DefaultNamespace()
+		if err != nil {
+			return err
+		}
+		options.Namespace = namespace
 	}
 
-	if len(o.Container) > 0 {
-		options.ContainerName = o.Container
+	container := cmdutil.GetFlagString(cmd, "container")
+	if len(container) > 0 {
+		options.ContainerName = container
 	}
 
-	options.Config = o.ClientConfig
-	options.PodClient = o.Clientset.Core()
+	config, err := f.ClientConfig()
+	if err != nil {
+		return err
+	}
+	options.Config = config
+
+	clientset, err := f.ClientSet()
+	if err != nil {
+		return err
+	}
+	options.PodClient = clientset.Core()
 
 	if err := options.Validate(); err != nil {
 		return err

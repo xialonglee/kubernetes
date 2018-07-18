@@ -41,7 +41,7 @@ import (
 )
 
 func TestCRDShadowGroup(t *testing.T) {
-	result := kubeapiservertesting.StartTestServerOrDie(t, nil, nil, framework.SharedEtcd())
+	result := kubeapiservertesting.StartTestServerOrDie(t, nil, framework.SharedEtcd())
 	defer result.TearDownFn()
 
 	kubeclient, err := kubernetes.NewForConfig(result.ClientConfig)
@@ -109,7 +109,7 @@ func TestCRDShadowGroup(t *testing.T) {
 func TestCRD(t *testing.T) {
 	defer utilfeaturetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.Initializers, true)()
 
-	result := kubeapiservertesting.StartTestServerOrDie(t, nil, []string{"--admission-control", "Initializers"}, framework.SharedEtcd())
+	result := kubeapiservertesting.StartTestServerOrDie(t, []string{"--admission-control", "Initializers"}, framework.SharedEtcd())
 	defer result.TearDownFn()
 
 	kubeclient, err := kubernetes.NewForConfig(result.ClientConfig)
@@ -150,12 +150,14 @@ func TestCRD(t *testing.T) {
 	}
 
 	t.Logf("Trying to access foos.cr.bar.com with dynamic client")
-	dynamicClient, err := dynamic.NewForConfig(result.ClientConfig)
+	barComConfig := *result.ClientConfig
+	barComConfig.GroupVersion = &schema.GroupVersion{Group: "cr.bar.com", Version: "v1"}
+	barComConfig.APIPath = "/apis"
+	barComClient, err := dynamic.NewClient(&barComConfig)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
-	fooResource := schema.GroupVersionResource{Group: "cr.bar.com", Version: "v1", Resource: "foos"}
-	_, err = dynamicClient.Resource(fooResource).Namespace("default").List(metav1.ListOptions{})
+	_, err = barComClient.Resource(&metav1.APIResource{Name: "foos", Namespaced: true}, "default").List(metav1.ListOptions{})
 	if err != nil {
 		t.Errorf("Failed to list foos.cr.bar.com instances: %v", err)
 	}
@@ -199,7 +201,7 @@ func TestCRD(t *testing.T) {
 	}
 	createErr := make(chan error, 1)
 	go func() {
-		_, err := dynamicClient.Resource(fooResource).Namespace("default").Create(unstructuredFoo)
+		_, err := barComClient.Resource(&metav1.APIResource{Name: "foos", Namespaced: true}, "default").Create(unstructuredFoo)
 		t.Logf("Foo instance create returned: %v", err)
 		if err != nil {
 			createErr <- err
@@ -214,7 +216,7 @@ func TestCRD(t *testing.T) {
 		}
 
 		t.Logf("Checking that Foo instance is visible with IncludeUninitialized=true")
-		_, err := dynamicClient.Resource(fooResource).Namespace("default").Get(foo.ObjectMeta.Name, metav1.GetOptions{
+		_, err := barComClient.Resource(&metav1.APIResource{Name: "foos", Namespaced: true}, "default").Get(foo.ObjectMeta.Name, metav1.GetOptions{
 			IncludeUninitialized: true,
 		})
 		switch {
@@ -235,7 +237,7 @@ func TestCRD(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		// would love to replace the following with a patch, but removing strings from the intitializer array
 		// is not what JSON (Merge) patch authors had in mind.
-		fooUnstructured, err := dynamicClient.Resource(fooResource).Namespace("default").Get(foo.ObjectMeta.Name, metav1.GetOptions{
+		fooUnstructured, err := barComClient.Resource(&metav1.APIResource{Name: "foos", Namespaced: true}, "default").Get(foo.ObjectMeta.Name, metav1.GetOptions{
 			IncludeUninitialized: true,
 		})
 		if err != nil {
@@ -272,7 +274,7 @@ func TestCRD(t *testing.T) {
 		}
 		fooUnstructured.UnmarshalJSON(bs)
 
-		_, err = dynamicClient.Resource(fooResource).Namespace("default").Update(fooUnstructured)
+		_, err = barComClient.Resource(&metav1.APIResource{Name: "foos", Namespaced: true}, "default").Update(fooUnstructured)
 		if err != nil && !errors.IsConflict(err) {
 			t.Fatalf("Failed to update Foo instance: %v", err)
 		} else if err == nil {
@@ -285,7 +287,7 @@ func TestCRD(t *testing.T) {
 	}
 
 	t.Logf("Checking that Foo instance is visible after removing the initializer")
-	if _, err := dynamicClient.Resource(fooResource).Namespace("default").Get(foo.ObjectMeta.Name, metav1.GetOptions{}); err != nil {
+	if _, err := barComClient.Resource(&metav1.APIResource{Name: "foos", Namespaced: true}, "default").Get(foo.ObjectMeta.Name, metav1.GetOptions{}); err != nil {
 		t.Errorf("Unexpected error: %v", err)
 	}
 }

@@ -38,7 +38,7 @@ import (
 	restclient "k8s.io/client-go/rest"
 	remoteclient "k8s.io/client-go/tools/remotecommand"
 	"k8s.io/client-go/transport/spdy"
-	"k8s.io/kubernetes/pkg/api/legacyscheme"
+	"k8s.io/kubernetes/pkg/api/testapi"
 	api "k8s.io/kubernetes/pkg/apis/core"
 	"k8s.io/kubernetes/pkg/kubelet/server/remotecommand"
 )
@@ -223,7 +223,7 @@ func TestStream(t *testing.T) {
 			url, _ := url.ParseRequestURI(server.URL)
 			config := restclient.ContentConfig{
 				GroupVersion:         &schema.GroupVersion{Group: "x"},
-				NegotiatedSerializer: legacyscheme.Codecs,
+				NegotiatedSerializer: testapi.Default.NegotiatedSerializer(),
 			}
 			c, err := restclient.NewRESTClient(url, "", config, -1, -1, nil, nil)
 			if err != nil {

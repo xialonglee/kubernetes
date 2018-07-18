@@ -31,14 +31,12 @@ func TestQuotaGenerate(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 
-	tests := []struct {
-		name      string
+	tests := map[string]struct {
 		params    map[string]interface{}
 		expected  *v1.ResourceQuota
 		expectErr bool
 	}{
-		{
-			name: "test-valid-use",
+		"test-valid-use": {
 			params: map[string]interface{}{
 				"name": "foo",
 				"hard": hard,
@@ -51,15 +49,13 @@ func TestQuotaGenerate(t *testing.T) {
 			},
 			expectErr: false,
 		},
-		{
-			name: "test-missing-required-param",
+		"test-missing-required-param": {
 			params: map[string]interface{}{
 				"name": "foo",
 			},
 			expectErr: true,
 		},
-		{
-			name: "test-valid-scopes",
+		"test-valid-scopes": {
 			params: map[string]interface{}{
 				"name":   "foo",
 				"hard":   hard,
@@ -79,8 +75,7 @@ func TestQuotaGenerate(t *testing.T) {
 			},
 			expectErr: false,
 		},
-		{
-			name: "test-empty-scopes",
+		"test-empty-scopes": {
 			params: map[string]interface{}{
 				"name":   "foo",
 				"hard":   hard,
@@ -94,8 +89,7 @@ func TestQuotaGenerate(t *testing.T) {
 			},
 			expectErr: false,
 		},
-		{
-			name: "test-invalid-scopes",
+		"test-invalid-scopes": {
 			params: map[string]interface{}{
 				"name":   "foo",
 				"hard":   hard,
@@ -106,18 +100,16 @@ func TestQuotaGenerate(t *testing.T) {
 	}
 
 	generator := ResourceQuotaGeneratorV1{}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			obj, err := generator.Generate(tt.params)
-			if !tt.expectErr && err != nil {
-				t.Errorf("%s: unexpected error: %v", tt.name, err)
-			}
-			if tt.expectErr && err != nil {
-				return
-			}
-			if !reflect.DeepEqual(obj.(*v1.ResourceQuota), tt.expected) {
-				t.Errorf("%s:\nexpected:\n%#v\nsaw:\n%#v", tt.name, tt.expected, obj.(*v1.ResourceQuota))
-			}
-		})
+	for name, test := range tests {
+		obj, err := generator.Generate(test.params)
+		if !test.expectErr && err != nil {
+			t.Errorf("%s: unexpected error: %v", name, err)
+		}
+		if test.expectErr && err != nil {
+			continue
+		}
+		if !reflect.DeepEqual(obj.(*v1.ResourceQuota), test.expected) {
+			t.Errorf("%s:\nexpected:\n%#v\nsaw:\n%#v", name, test.expected, obj.(*v1.ResourceQuota))
+		}
 	}
 }

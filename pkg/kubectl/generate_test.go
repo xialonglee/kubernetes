@@ -29,72 +29,38 @@ type TestStruct struct {
 
 func TestIsZero(t *testing.T) {
 	tests := []struct {
-		name       string
 		val        interface{}
 		expectZero bool
 	}{
-		{
-			name:       "test1",
-			val:        "",
-			expectZero: true,
-		},
-		{
-			name:       "test2",
-			val:        nil,
-			expectZero: true,
-		},
-		{
-			name:       "test3",
-			val:        0,
-			expectZero: true,
-		},
-		{
-			name:       "test4",
-			val:        TestStruct{},
-			expectZero: true,
-		},
-		{
-			name:       "test5",
-			val:        "foo",
-			expectZero: false,
-		},
-		{
-			name:       "test6",
-			val:        1,
-			expectZero: false,
-		},
-		{
-			name:       "test7",
-			val:        TestStruct{val: 2},
-			expectZero: false,
-		},
+		{"", true},
+		{nil, true},
+		{0, true},
+		{TestStruct{}, true},
+		{"foo", false},
+		{1, false},
+		{TestStruct{val: 2}, false},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			output := IsZero(tt.val)
-			if output != tt.expectZero {
-				t.Errorf("expected: %v, saw %v", tt.expectZero, output)
-			}
-		})
+	for _, test := range tests {
+		output := IsZero(test.val)
+		if output != test.expectZero {
+			t.Errorf("expected: %v, saw %v", test.expectZero, output)
+		}
 	}
 }
 
 func TestValidateParams(t *testing.T) {
 	tests := []struct {
-		name      string
 		paramSpec []GeneratorParam
 		params    map[string]interface{}
 		valid     bool
 	}{
 		{
-			name:      "test1",
 			paramSpec: []GeneratorParam{},
 			params:    map[string]interface{}{},
 			valid:     true,
 		},
 		{
-			name: "test2",
 			paramSpec: []GeneratorParam{
 				{Name: "foo"},
 			},
@@ -102,7 +68,6 @@ func TestValidateParams(t *testing.T) {
 			valid:  true,
 		},
 		{
-			name: "test3",
 			paramSpec: []GeneratorParam{
 				{Name: "foo", Required: true},
 			},
@@ -112,7 +77,6 @@ func TestValidateParams(t *testing.T) {
 			valid: true,
 		},
 		{
-			name: "test4",
 			paramSpec: []GeneratorParam{
 				{Name: "foo", Required: true},
 			},
@@ -123,7 +87,6 @@ func TestValidateParams(t *testing.T) {
 			valid: true,
 		},
 		{
-			name: "test5",
 			paramSpec: []GeneratorParam{
 				{Name: "foo", Required: true},
 				{Name: "baz", Required: true},
@@ -135,7 +98,6 @@ func TestValidateParams(t *testing.T) {
 			valid: true,
 		},
 		{
-			name: "test6",
 			paramSpec: []GeneratorParam{
 				{Name: "foo", Required: true},
 				{Name: "baz", Required: true},
@@ -146,16 +108,14 @@ func TestValidateParams(t *testing.T) {
 			valid: false,
 		},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateParams(tt.paramSpec, tt.params)
-			if tt.valid && err != nil {
-				t.Errorf("unexpected error: %v", err)
-			}
-			if !tt.valid && err == nil {
-				t.Errorf("unexpected non-error")
-			}
-		})
+	for _, test := range tests {
+		err := ValidateParams(test.paramSpec, test.params)
+		if test.valid && err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+		if !test.valid && err == nil {
+			t.Errorf("unexpected non-error")
+		}
 	}
 }
 
@@ -249,30 +209,26 @@ func TestGetBool(t *testing.T) {
 			expectError:  true,
 		},
 	}
-	for _, tt := range testCases {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := GetBool(tt.parameters, tt.key, tt.defaultValue)
-			if err != nil && tt.expectError == false {
-				t.Errorf("%s: unexpected error: %v", tt.name, err)
-			}
-			if err == nil && tt.expectError == true {
-				t.Errorf("%s: expect error, got nil", tt.name)
-			}
-			if got != tt.expected {
-				t.Errorf("%s: expect %v, got %v", tt.name, tt.expected, got)
-			}
-		})
+	for _, test := range testCases {
+		got, err := GetBool(test.parameters, test.key, test.defaultValue)
+		if err != nil && test.expectError == false {
+			t.Errorf("%s: unexpected error: %v", test.name, err)
+		}
+		if err == nil && test.expectError == true {
+			t.Errorf("%s: expect error, got nil", test.name)
+		}
+		if got != test.expected {
+			t.Errorf("%s: expect %v, got %v", test.name, test.expected, got)
+		}
 	}
 }
 
 func TestMakeParseLabels(t *testing.T) {
 	successCases := []struct {
-		name     string
 		labels   map[string]string
 		expected map[string]string
 	}{
 		{
-			name: "test1",
 			labels: map[string]string{
 				"foo": "false",
 			},
@@ -281,7 +237,6 @@ func TestMakeParseLabels(t *testing.T) {
 			},
 		},
 		{
-			name: "test2",
 			labels: map[string]string{
 				"foo": "true",
 				"bar": "123",
@@ -292,17 +247,15 @@ func TestMakeParseLabels(t *testing.T) {
 			},
 		},
 	}
-	for _, tt := range successCases {
-		t.Run(tt.name, func(t *testing.T) {
-			labelString := MakeLabels(tt.labels)
-			got, err := ParseLabels(labelString)
-			if err != nil {
-				t.Errorf("unexpected error :%v", err)
-			}
-			if !reflect.DeepEqual(tt.expected, got) {
-				t.Errorf("\nexpected:\n%v\ngot:\n%v", tt.expected, got)
-			}
-		})
+	for _, test := range successCases {
+		labelString := MakeLabels(test.labels)
+		got, err := ParseLabels(labelString)
+		if err != nil {
+			t.Errorf("unexpected error :%v", err)
+		}
+		if !reflect.DeepEqual(test.expected, got) {
+			t.Errorf("\nexpected:\n%v\ngot:\n%v", test.expected, got)
+		}
 	}
 
 	errorCases := []struct {
@@ -348,12 +301,10 @@ func TestMakeParseLabels(t *testing.T) {
 
 func TestMakeParseProtocols(t *testing.T) {
 	successCases := []struct {
-		name      string
 		protocols map[string]string
 		expected  map[string]string
 	}{
 		{
-			name: "test1",
 			protocols: map[string]string{
 				"101": "TCP",
 			},
@@ -362,7 +313,6 @@ func TestMakeParseProtocols(t *testing.T) {
 			},
 		},
 		{
-			name: "test2",
 			protocols: map[string]string{
 				"102": "UDP",
 				"101": "TCP",
@@ -373,17 +323,15 @@ func TestMakeParseProtocols(t *testing.T) {
 			},
 		},
 	}
-	for _, tt := range successCases {
-		t.Run(tt.name, func(t *testing.T) {
-			protocolString := MakeProtocols(tt.protocols)
-			got, err := ParseProtocols(protocolString)
-			if err != nil {
-				t.Errorf("unexpected error :%v", err)
-			}
-			if !reflect.DeepEqual(tt.expected, got) {
-				t.Errorf("\nexpected:\n%v\ngot:\n%v", tt.expected, got)
-			}
-		})
+	for _, test := range successCases {
+		protocolString := MakeProtocols(test.protocols)
+		got, err := ParseProtocols(protocolString)
+		if err != nil {
+			t.Errorf("unexpected error :%v", err)
+		}
+		if !reflect.DeepEqual(test.expected, got) {
+			t.Errorf("\nexpected:\n%v\ngot:\n%v", test.expected, got)
+		}
 	}
 
 	errorCases := []struct {

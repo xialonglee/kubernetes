@@ -18,7 +18,6 @@ package apiserver
 
 import (
 	"crypto/tls"
-	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
@@ -57,32 +56,41 @@ func (d *targetHTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-func contextHandler(handler http.Handler, user user.Info) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		ctx := req.Context()
-		if user != nil {
-			ctx = genericapirequest.WithUser(ctx, user)
-		}
-		resolver := &genericapirequest.RequestInfoFactory{
-			APIPrefixes:          sets.NewString("api", "apis"),
-			GrouplessAPIPrefixes: sets.NewString("api"),
-		}
-		info, err := resolver.NewRequestInfo(req)
-		if err == nil {
-			ctx = genericapirequest.WithRequestInfo(ctx, info)
-		}
-		req = req.WithContext(ctx)
-		handler.ServeHTTP(w, req)
-	})
+type fakeRequestContextMapper struct {
+	user user.Info
+}
+
+func (m *fakeRequestContextMapper) Get(req *http.Request) (genericapirequest.Context, bool) {
+	ctx := genericapirequest.NewContext()
+	if m.user != nil {
+		ctx = genericapirequest.WithUser(ctx, m.user)
+	}
+
+	resolver := &genericapirequest.RequestInfoFactory{
+		APIPrefixes:          sets.NewString("api", "apis"),
+		GrouplessAPIPrefixes: sets.NewString("api"),
+	}
+	info, err := resolver.NewRequestInfo(req)
+	if err == nil {
+		ctx = genericapirequest.WithRequestInfo(ctx, info)
+	}
+
+	return ctx, true
+}
+
+func (*fakeRequestContextMapper) Update(req *http.Request, context genericapirequest.Context) error {
+	return nil
 }
 
 type mockedRouter struct {
 	destinationHost string
-	err             error
 }
 
 func (r *mockedRouter) ResolveEndpoint(namespace, name string) (*url.URL, error) {
-	return &url.URL{Scheme: "https", Host: r.destinationHost}, r.err
+	return &url.URL{
+		Scheme: "https",
+		Host:   r.destinationHost,
+	}, nil
 }
 
 func TestProxyHandler(t *testing.T) {
@@ -101,8 +109,6 @@ func TestProxyHandler(t *testing.T) {
 		path       string
 		apiService *apiregistration.APIService
 
-		serviceResolver ServiceResolver
-
 		expectedStatusCode int
 		expectedBody       string
 		expectedCalled     bool
@@ -118,11 +124,6 @@ func TestProxyHandler(t *testing.T) {
 					Service: &apiregistration.ServiceReference{},
 					Group:   "foo",
 					Version: "v1",
-				},
-				Status: apiregistration.APIServiceStatus{
-					Conditions: []apiregistration.APIServiceCondition{
-						{Type: apiregistration.Available, Status: apiregistration.ConditionTrue},
-					},
 				},
 			},
 			expectedStatusCode: http.StatusInternalServerError,
@@ -141,11 +142,6 @@ func TestProxyHandler(t *testing.T) {
 					Group:                 "foo",
 					Version:               "v1",
 					InsecureSkipTLSVerify: true,
-				},
-				Status: apiregistration.APIServiceStatus{
-					Conditions: []apiregistration.APIServiceCondition{
-						{Type: apiregistration.Available, Status: apiregistration.ConditionTrue},
-					},
 				},
 			},
 			expectedStatusCode: http.StatusOK,
@@ -174,11 +170,6 @@ func TestProxyHandler(t *testing.T) {
 					Version:  "v1",
 					CABundle: testCACrt,
 				},
-				Status: apiregistration.APIServiceStatus{
-					Conditions: []apiregistration.APIServiceCondition{
-						{Type: apiregistration.Available, Status: apiregistration.ConditionTrue},
-					},
-				},
 			},
 			expectedStatusCode: http.StatusOK,
 			expectedCalled:     true,
@@ -191,51 +182,6 @@ func TestProxyHandler(t *testing.T) {
 				"Accept-Encoding":   {"gzip"},
 				"X-Remote-Group":    {"one", "two"},
 			},
-		},
-		"service unavailable": {
-			user: &user.DefaultInfo{
-				Name:   "username",
-				Groups: []string{"one", "two"},
-			},
-			path: "/request/path",
-			apiService: &apiregistration.APIService{
-				ObjectMeta: metav1.ObjectMeta{Name: "v1.foo"},
-				Spec: apiregistration.APIServiceSpec{
-					Service:  &apiregistration.ServiceReference{Name: "test-service", Namespace: "test-ns"},
-					Group:    "foo",
-					Version:  "v1",
-					CABundle: testCACrt,
-				},
-				Status: apiregistration.APIServiceStatus{
-					Conditions: []apiregistration.APIServiceCondition{
-						{Type: apiregistration.Available, Status: apiregistration.ConditionFalse},
-					},
-				},
-			},
-			expectedStatusCode: http.StatusServiceUnavailable,
-		},
-		"service unresolveable": {
-			user: &user.DefaultInfo{
-				Name:   "username",
-				Groups: []string{"one", "two"},
-			},
-			path:            "/request/path",
-			serviceResolver: &mockedRouter{err: fmt.Errorf("unresolveable")},
-			apiService: &apiregistration.APIService{
-				ObjectMeta: metav1.ObjectMeta{Name: "v1.foo"},
-				Spec: apiregistration.APIServiceSpec{
-					Service:  &apiregistration.ServiceReference{Name: "bad-service", Namespace: "test-ns"},
-					Group:    "foo",
-					Version:  "v1",
-					CABundle: testCACrt,
-				},
-				Status: apiregistration.APIServiceStatus{
-					Conditions: []apiregistration.APIServiceCondition{
-						{Type: apiregistration.Available, Status: apiregistration.ConditionTrue},
-					},
-				},
-			},
-			expectedStatusCode: http.StatusServiceUnavailable,
 		},
 		"fail on bad serving cert": {
 			user: &user.DefaultInfo{
@@ -250,11 +196,6 @@ func TestProxyHandler(t *testing.T) {
 					Group:   "foo",
 					Version: "v1",
 				},
-				Status: apiregistration.APIServiceStatus{
-					Conditions: []apiregistration.APIServiceCondition{
-						{Type: apiregistration.Available, Status: apiregistration.ConditionTrue},
-					},
-				},
 			},
 			expectedStatusCode: http.StatusServiceUnavailable,
 		},
@@ -264,16 +205,13 @@ func TestProxyHandler(t *testing.T) {
 		target.Reset()
 
 		func() {
-			serviceResolver := tc.serviceResolver
-			if serviceResolver == nil {
-				serviceResolver = &mockedRouter{destinationHost: targetServer.Listener.Addr().String()}
-			}
 			handler := &proxyHandler{
 				localDelegate:   http.NewServeMux(),
-				serviceResolver: serviceResolver,
+				serviceResolver: &mockedRouter{destinationHost: targetServer.Listener.Addr().String()},
 				proxyTransport:  &http.Transport{},
 			}
-			server := httptest.NewServer(contextHandler(handler, tc.user))
+			handler.contextMapper = &fakeRequestContextMapper{user: tc.user}
+			server := httptest.NewServer(handler)
 			defer server.Close()
 
 			if tc.apiService != nil {
@@ -331,11 +269,6 @@ func TestProxyUpgrade(t *testing.T) {
 					Version:  "v1",
 					Service:  &apiregistration.ServiceReference{Name: "test-service", Namespace: "test-ns"},
 				},
-				Status: apiregistration.APIServiceStatus{
-					Conditions: []apiregistration.APIServiceCondition{
-						{Type: apiregistration.Available, Status: apiregistration.ConditionTrue},
-					},
-				},
 			},
 			ExpectError:  false,
 			ExpectCalled: true,
@@ -348,11 +281,6 @@ func TestProxyUpgrade(t *testing.T) {
 					Version: "v1",
 					Service: &apiregistration.ServiceReference{Name: "invalid-service", Namespace: "invalid-ns"},
 				},
-				Status: apiregistration.APIServiceStatus{
-					Conditions: []apiregistration.APIServiceCondition{
-						{Type: apiregistration.Available, Status: apiregistration.ConditionTrue},
-					},
-				},
 			},
 			ExpectError:  false,
 			ExpectCalled: true,
@@ -364,11 +292,6 @@ func TestProxyUpgrade(t *testing.T) {
 					Group:    "mygroup",
 					Version:  "v1",
 					Service:  &apiregistration.ServiceReference{Name: "invalid-service", Namespace: "invalid-ns"},
-				},
-				Status: apiregistration.APIServiceStatus{
-					Conditions: []apiregistration.APIServiceCondition{
-						{Type: apiregistration.Available, Status: apiregistration.ConditionTrue},
-					},
 				},
 			},
 			ExpectError:  true,
@@ -409,11 +332,12 @@ func TestProxyUpgrade(t *testing.T) {
 
 			serverURL, _ := url.Parse(backendServer.URL)
 			proxyHandler := &proxyHandler{
+				contextMapper:   &fakeRequestContextMapper{user: &user.DefaultInfo{Name: "username"}},
 				serviceResolver: &mockedRouter{destinationHost: serverURL.Host},
 				proxyTransport:  &http.Transport{},
 			}
 			proxyHandler.updateAPIService(tc.APIService)
-			aggregator := httptest.NewServer(contextHandler(proxyHandler, &user.DefaultInfo{Name: "username"}))
+			aggregator := httptest.NewServer(proxyHandler)
 			defer aggregator.Close()
 
 			ws, err := websocket.Dial("ws://"+aggregator.Listener.Addr().String()+path, "", "http://127.0.0.1/")

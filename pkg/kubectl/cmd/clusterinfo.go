@@ -23,13 +23,10 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilnet "k8s.io/apimachinery/pkg/util/net"
-	restclient "k8s.io/client-go/rest"
-	"k8s.io/kubernetes/pkg/api/legacyscheme"
 	api "k8s.io/kubernetes/pkg/apis/core"
 	"k8s.io/kubernetes/pkg/kubectl/cmd/templates"
 	cmdutil "k8s.io/kubernetes/pkg/kubectl/cmd/util"
-	"k8s.io/kubernetes/pkg/kubectl/genericclioptions"
-	"k8s.io/kubernetes/pkg/kubectl/genericclioptions/resource"
+	"k8s.io/kubernetes/pkg/kubectl/resource"
 	"k8s.io/kubernetes/pkg/kubectl/util/i18n"
 
 	ct "github.com/daviddengcn/go-colortext"
@@ -46,65 +43,45 @@ var (
 		kubectl cluster-info`))
 )
 
-type ClusterInfoOptions struct {
-	genericclioptions.IOStreams
-
-	Namespace string
-
-	Builder *resource.Builder
-	Client  *restclient.Config
-}
-
-func NewCmdClusterInfo(f cmdutil.Factory, ioStreams genericclioptions.IOStreams) *cobra.Command {
-	o := &ClusterInfoOptions{
-		IOStreams: ioStreams,
-	}
-
+func NewCmdClusterInfo(f cmdutil.Factory, out io.Writer) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "cluster-info",
 		Short:   i18n.T("Display cluster info"),
 		Long:    longDescr,
 		Example: clusterinfoExample,
 		Run: func(cmd *cobra.Command, args []string) {
-			cmdutil.CheckErr(o.Complete(f, cmd))
-			cmdutil.CheckErr(o.Run())
+			err := RunClusterInfo(f, out, cmd)
+			cmdutil.CheckErr(err)
 		},
 	}
-	cmd.AddCommand(NewCmdClusterInfoDump(f, ioStreams))
+	cmdutil.AddInclude3rdPartyFlags(cmd)
+	cmd.AddCommand(NewCmdClusterInfoDump(f, out))
 	return cmd
 }
 
-func (o *ClusterInfoOptions) Complete(f cmdutil.Factory, cmd *cobra.Command) error {
-	var err error
-	o.Client, err = f.ToRESTConfig()
+func RunClusterInfo(f cmdutil.Factory, out io.Writer, cmd *cobra.Command) error {
+	client, err := f.ClientConfig()
 	if err != nil {
 		return err
 	}
+	printService(out, "Kubernetes master", client.Host)
 
 	cmdNamespace := cmdutil.GetFlagString(cmd, "namespace")
 	if cmdNamespace == "" {
 		cmdNamespace = metav1.NamespaceSystem
 	}
-	o.Namespace = cmdNamespace
 
-	o.Builder = f.NewBuilder()
-	return nil
-}
-
-func (o *ClusterInfoOptions) Run() error {
 	// TODO use generalized labels once they are implemented (#341)
-	b := o.Builder.
-		WithScheme(legacyscheme.Scheme).
-		NamespaceParam(o.Namespace).DefaultNamespace().
+	b := f.NewBuilder().
+		Internal().
+		NamespaceParam(cmdNamespace).DefaultNamespace().
 		LabelSelectorParam("kubernetes.io/cluster-service=true").
 		ResourceTypeOrNameArgs(false, []string{"services"}...).
 		Latest()
-	err := b.Do().Visit(func(r *resource.Info, err error) error {
+	err = b.Do().Visit(func(r *resource.Info, err error) error {
 		if err != nil {
 			return err
 		}
-		printService(o.Out, "Kubernetes master", o.Client.Host)
-
 		services := r.Object.(*api.ServiceList).Items
 		for _, service := range services {
 			var link string
@@ -133,10 +110,10 @@ func (o *ClusterInfoOptions) Run() error {
 					name = utilnet.JoinSchemeNamePort(scheme, service.ObjectMeta.Name, port.Name)
 				}
 
-				if len(o.Client.GroupVersion.Group) == 0 {
-					link = o.Client.Host + "/api/" + o.Client.GroupVersion.Version + "/namespaces/" + service.ObjectMeta.Namespace + "/services/" + name + "/proxy"
+				if len(client.GroupVersion.Group) == 0 {
+					link = client.Host + "/api/" + client.GroupVersion.Version + "/namespaces/" + service.ObjectMeta.Namespace + "/services/" + name + "/proxy"
 				} else {
-					link = o.Client.Host + "/api/" + o.Client.GroupVersion.Group + "/" + o.Client.GroupVersion.Version + "/namespaces/" + service.ObjectMeta.Namespace + "/services/" + name + "/proxy"
+					link = client.Host + "/api/" + client.GroupVersion.Group + "/" + client.GroupVersion.Version + "/namespaces/" + service.ObjectMeta.Namespace + "/services/" + name + "/proxy"
 
 				}
 			}
@@ -144,11 +121,11 @@ func (o *ClusterInfoOptions) Run() error {
 			if len(name) == 0 {
 				name = service.ObjectMeta.Name
 			}
-			printService(o.Out, name, link)
+			printService(out, name, link)
 		}
 		return nil
 	})
-	o.Out.Write([]byte("\nTo further debug and diagnose cluster problems, use 'kubectl cluster-info dump'.\n"))
+	out.Write([]byte("\nTo further debug and diagnose cluster problems, use 'kubectl cluster-info dump'.\n"))
 	return err
 
 	// TODO consider printing more information about cluster
@@ -158,7 +135,7 @@ func printService(out io.Writer, name, link string) {
 	ct.ChangeColor(ct.Green, false, ct.None, false)
 	fmt.Fprint(out, name)
 	ct.ResetColor()
-	fmt.Fprint(out, " is running at ")
+	fmt.Fprintf(out, " is running at ")
 	ct.ChangeColor(ct.Yellow, false, ct.None, false)
 	fmt.Fprint(out, link)
 	ct.ResetColor()

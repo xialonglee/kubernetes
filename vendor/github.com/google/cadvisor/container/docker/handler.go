@@ -35,6 +35,7 @@ import (
 	dockercontainer "github.com/docker/docker/api/types/container"
 	docker "github.com/docker/docker/client"
 	"github.com/golang/glog"
+	"github.com/opencontainers/runc/libcontainer/cgroups"
 	cgroupfs "github.com/opencontainers/runc/libcontainer/cgroups/fs"
 	libcontainerconfigs "github.com/opencontainers/runc/libcontainer/configs"
 	"golang.org/x/net/context"
@@ -43,7 +44,6 @@ import (
 const (
 	// The read write layers exist here.
 	aufsRWLayer     = "diff"
-	overlayRWLayer  = "upper"
 	overlay2RWLayer = "diff"
 
 	// Path to the directory where docker stores log files if the json logging driver is enabled.
@@ -51,28 +51,52 @@ const (
 )
 
 type dockerContainerHandler struct {
-
-	// machineInfoFactory provides info.MachineInfo
+	client             *docker.Client
+	name               string
+	id                 string
+	aliases            []string
 	machineInfoFactory info.MachineInfoFactory
 
 	// Absolute path to the cgroup hierarchies of this container.
 	// (e.g.: "cpu" -> "/sys/fs/cgroup/cpu/test")
 	cgroupPaths map[string]string
 
+	// Manager of this container's cgroups.
+	cgroupManager cgroups.Manager
+
 	// the docker storage driver
 	storageDriver    storageDriver
 	fsInfo           fs.FsInfo
 	rootfsStorageDir string
 
+	// devicemapper state
+
+	// the devicemapper poolname
+	poolName string
+	// the devicemapper device id for the container
+	deviceID string
+
+	// zfs Filesystem
+	zfsFilesystem string
+
+	// zfsParent is the parent for docker zfs
+	zfsParent string
+
 	// Time at which this container was created.
 	creationTime time.Time
 
 	// Metadata associated with the container.
-	envs   map[string]string
 	labels map[string]string
+	envs   map[string]string
+
+	// The container PID used to switch namespaces as required
+	pid int
 
 	// Image name used for this container.
 	image string
+
+	// The host root FS to read
+	rootFs string
 
 	// The network mode of the container
 	networkMode dockercontainer.NetworkMode
@@ -85,16 +109,14 @@ type dockerContainerHandler struct {
 
 	ignoreMetrics container.MetricSet
 
-	// the devicemapper poolname
-	poolName string
+	// thin pool watcher
+	thinPoolWatcher *devicemapper.ThinPoolWatcher
 
-	// zfsParent is the parent for docker zfs
-	zfsParent string
+	// zfs watcher
+	zfsWatcher *zfs.ZfsWatcher
 
-	// Reference to the container
-	reference info.ContainerReference
-
-	libcontainerHandler *containerlibcontainer.Handler
+	// container restart count
+	restartCount int
 }
 
 var _ container.ContainerHandler = &dockerContainerHandler{}
@@ -175,7 +197,7 @@ func newDockerContainerHandler(
 	case aufsStorageDriver:
 		rootfsStorageDir = path.Join(storageDir, string(aufsStorageDriver), aufsRWLayer, rwLayerID)
 	case overlayStorageDriver:
-		rootfsStorageDir = path.Join(storageDir, string(storageDriver), rwLayerID, overlayRWLayer)
+		rootfsStorageDir = path.Join(storageDir, string(storageDriver), rwLayerID)
 	case overlay2StorageDriver:
 		rootfsStorageDir = path.Join(storageDir, string(storageDriver), rwLayerID, overlay2RWLayer)
 	case zfsStorageDriver:
@@ -187,24 +209,31 @@ func newDockerContainerHandler(
 		zfsFilesystem = path.Join(zfsParent, rwLayerID)
 	}
 
+	// TODO: extract object mother method
+	handler := &dockerContainerHandler{
+		id:                 id,
+		client:             client,
+		name:               name,
+		machineInfoFactory: machineInfoFactory,
+		cgroupPaths:        cgroupPaths,
+		cgroupManager:      cgroupManager,
+		storageDriver:      storageDriver,
+		fsInfo:             fsInfo,
+		rootFs:             rootFs,
+		poolName:           thinPoolName,
+		zfsFilesystem:      zfsFilesystem,
+		rootfsStorageDir:   rootfsStorageDir,
+		envs:               make(map[string]string),
+		ignoreMetrics:      ignoreMetrics,
+		thinPoolWatcher:    thinPoolWatcher,
+		zfsWatcher:         zfsWatcher,
+		zfsParent:          zfsParent,
+	}
+
 	// We assume that if Inspect fails then the container is not known to docker.
 	ctnr, err := client.ContainerInspect(context.Background(), id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to inspect container %q: %v", id, err)
-	}
-
-	// TODO: extract object mother method
-	handler := &dockerContainerHandler{
-		machineInfoFactory: machineInfoFactory,
-		cgroupPaths:        cgroupPaths,
-		fsInfo:             fsInfo,
-		storageDriver:      storageDriver,
-		poolName:           thinPoolName,
-		rootfsStorageDir:   rootfsStorageDir,
-		envs:               make(map[string]string),
-		labels:             ctnr.Config.Labels,
-		ignoreMetrics:      ignoreMetrics,
-		zfsParent:          zfsParent,
 	}
 	// Timestamp returned by Docker is in time.RFC3339Nano format.
 	handler.creationTime, err = time.Parse(time.RFC3339Nano, ctnr.Created)
@@ -212,21 +241,15 @@ func newDockerContainerHandler(
 		// This should not happen, report the error just in case
 		return nil, fmt.Errorf("failed to parse the create timestamp %q for container %q: %v", ctnr.Created, id, err)
 	}
-	handler.libcontainerHandler = containerlibcontainer.NewHandler(cgroupManager, rootFs, ctnr.State.Pid, ignoreMetrics)
+	handler.pid = ctnr.State.Pid
 
 	// Add the name and bare ID as aliases of the container.
-	handler.reference = info.ContainerReference{
-		Id:        id,
-		Name:      name,
-		Aliases:   []string{strings.TrimPrefix(ctnr.Name, "/"), id},
-		Namespace: DockerNamespace,
-	}
+	handler.aliases = append(handler.aliases, strings.TrimPrefix(ctnr.Name, "/"), id)
+	handler.labels = ctnr.Config.Labels
 	handler.image = ctnr.Config.Image
 	handler.networkMode = ctnr.HostConfig.NetworkMode
-	// Only adds restartcount label if it's greater than 0
-	if ctnr.RestartCount > 0 {
-		handler.labels["restartcount"] = strconv.Itoa(ctnr.RestartCount)
-	}
+	handler.deviceID = ctnr.GraphDriver.Data["DeviceId"]
+	handler.restartCount = ctnr.RestartCount
 
 	// Obtain the IP address for the contianer.
 	// If the NetworkMode starts with 'container:' then we need to use the IP address of the container specified.
@@ -249,7 +272,7 @@ func newDockerContainerHandler(
 			fsHandler:       common.NewFsHandler(common.DefaultPeriod, rootfsStorageDir, otherStorageDir, fsInfo),
 			thinPoolWatcher: thinPoolWatcher,
 			zfsWatcher:      zfsWatcher,
-			deviceID:        ctnr.GraphDriver.Data["DeviceId"],
+			deviceID:        handler.deviceID,
 			zfsFilesystem:   zfsFilesystem,
 		}
 	}
@@ -341,7 +364,13 @@ func (self *dockerContainerHandler) Cleanup() {
 }
 
 func (self *dockerContainerHandler) ContainerReference() (info.ContainerReference, error) {
-	return self.reference, nil
+	return info.ContainerReference{
+		Id:        self.id,
+		Name:      self.name,
+		Aliases:   self.aliases,
+		Namespace: DockerNamespace,
+		Labels:    self.labels,
+	}, nil
 }
 
 func (self *dockerContainerHandler) needNet() bool {
@@ -356,9 +385,12 @@ func (self *dockerContainerHandler) GetSpec() (info.ContainerSpec, error) {
 	spec, err := common.GetSpec(self.cgroupPaths, self.machineInfoFactory, self.needNet(), hasFilesystem)
 
 	spec.Labels = self.labels
+	// Only adds restartcount label if it's greater than 0
+	if self.restartCount > 0 {
+		spec.Labels["restartcount"] = strconv.Itoa(self.restartCount)
+	}
 	spec.Envs = self.envs
 	spec.Image = self.image
-	spec.CreationTime = self.creationTime
 
 	return spec, err
 }
@@ -421,7 +453,7 @@ func (self *dockerContainerHandler) getFsStats(stats *info.ContainerStats) error
 
 // TODO(vmarmol): Get from libcontainer API instead of cgroup manager when we don't have to support older Dockers.
 func (self *dockerContainerHandler) GetStats() (*info.ContainerStats, error) {
-	stats, err := self.libcontainerHandler.GetStats()
+	stats, err := containerlibcontainer.GetStats(self.cgroupManager, self.rootFs, self.pid, self.ignoreMetrics)
 	if err != nil {
 		return stats, err
 	}
@@ -450,7 +482,7 @@ func (self *dockerContainerHandler) ListContainers(listType container.ListType) 
 func (self *dockerContainerHandler) GetCgroupPath(resource string) (string, error) {
 	path, ok := self.cgroupPaths[resource]
 	if !ok {
-		return "", fmt.Errorf("could not find path for resource %q for container %q\n", resource, self.reference.Name)
+		return "", fmt.Errorf("could not find path for resource %q for container %q\n", resource, self.name)
 	}
 	return path, nil
 }
@@ -464,7 +496,7 @@ func (self *dockerContainerHandler) GetContainerIPAddress() string {
 }
 
 func (self *dockerContainerHandler) ListProcesses(listType container.ListType) ([]int, error) {
-	return self.libcontainerHandler.GetProcesses()
+	return containerlibcontainer.GetProcesses(self.cgroupManager)
 }
 
 func (self *dockerContainerHandler) Exists() bool {

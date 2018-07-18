@@ -24,7 +24,7 @@ spec:
       annotations:
         scheduler.alpha.kubernetes.io/critical-pod: ''
     spec:
-      priorityClassName: system-node-critical
+      {{pod_priority}}
       hostNetwork: true
       nodeSelector:
         beta.kubernetes.io/kube-proxy-ds-ready: "true"

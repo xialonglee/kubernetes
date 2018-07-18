@@ -8,7 +8,6 @@ load(
 go_library(
     name = "go_default_library",
     srcs = ["doc.go"],
-    importmap = "k8s.io/kubernetes/vendor/k8s.io/apiserver/plugin/pkg/audit",
     importpath = "k8s.io/apiserver/plugin/pkg/audit",
 )
 
@@ -23,10 +22,7 @@ filegroup(
     name = "all-srcs",
     srcs = [
         ":package-srcs",
-        "//staging/src/k8s.io/apiserver/plugin/pkg/audit/buffered:all-srcs",
-        "//staging/src/k8s.io/apiserver/plugin/pkg/audit/fake:all-srcs",
         "//staging/src/k8s.io/apiserver/plugin/pkg/audit/log:all-srcs",
-        "//staging/src/k8s.io/apiserver/plugin/pkg/audit/truncate:all-srcs",
         "//staging/src/k8s.io/apiserver/plugin/pkg/audit/webhook:all-srcs",
     ],
     tags = ["automanaged"],

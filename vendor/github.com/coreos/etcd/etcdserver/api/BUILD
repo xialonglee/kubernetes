@@ -7,7 +7,6 @@ go_library(
         "cluster.go",
         "doc.go",
     ],
-    importmap = "k8s.io/kubernetes/vendor/github.com/coreos/etcd/etcdserver/api",
     importpath = "github.com/coreos/etcd/etcdserver/api",
     visibility = ["//visibility:public"],
     deps = [
@@ -30,11 +29,7 @@ filegroup(
     name = "all-srcs",
     srcs = [
         ":package-srcs",
-        "//vendor/github.com/coreos/etcd/etcdserver/api/etcdhttp:all-srcs",
         "//vendor/github.com/coreos/etcd/etcdserver/api/v2http:all-srcs",
-        "//vendor/github.com/coreos/etcd/etcdserver/api/v3client:all-srcs",
-        "//vendor/github.com/coreos/etcd/etcdserver/api/v3election:all-srcs",
-        "//vendor/github.com/coreos/etcd/etcdserver/api/v3lock:all-srcs",
         "//vendor/github.com/coreos/etcd/etcdserver/api/v3rpc:all-srcs",
     ],
     tags = ["automanaged"],

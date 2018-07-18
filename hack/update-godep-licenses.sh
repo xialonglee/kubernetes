@@ -37,7 +37,7 @@ export LC_ALL=C
 # Process package content
 #
 # @param package  The incoming package name
-# @param type     The type of content (LICENSE, COPYRIGHT or COPYING)
+# @param type     The type of content (LICENSE or COPYRIGHT)
 #
 process_content () {
   local package=$1
@@ -65,19 +65,15 @@ process_content () {
                find_maxdepth=3
                ensure_pattern="copyright"
                ;;
-      COPYING) find_names=(-iname 'copying*')
-               find_maxdepth=1
-               ensure_pattern="license|copyright"
-               ;;
   esac
 
   # Start search at package root
   case ${package} in
     github.com/*|golang.org/*|bitbucket.org/*)
-     package_root=$(echo "${package}" |awk -F/ '{ print $1"/"$2"/"$3 }')
+     package_root=$(echo ${package} |awk -F/ '{ print $1"/"$2"/"$3 }')
      ;;
     go4.org/*)
-     package_root=$(echo "${package}" |awk -F/ '{ print $1 }')
+     package_root=$(echo ${package} |awk -F/ '{ print $1 }')
      ;;
     gopkg.in/*)
      # Root of gopkg.in package always ends with '.v(number)' and my contain
@@ -85,10 +81,10 @@ process_content () {
      # - gopkg.in/yaml.v2
      # - gopkg.in/inf.v0
      # - gopkg.in/square/go-jose.v2
-     package_root=$(echo "${package}" |grep -oh '.*\.v[0-9]')
+     package_root=$(echo ${package} |grep -oh '.*\.v[0-9]')
      ;;
     *)
-     package_root=$(echo "${package}" |awk -F/ '{ print $1"/"$2 }')
+     package_root=$(echo ${package} |awk -F/ '{ print $1"/"$2 }')
      ;;
   esac
 
@@ -98,7 +94,7 @@ process_content () {
       [[ -d ${DEPS_DIR}/${dir_root} ]] || continue
 
       # One (set) of these is fine
-      find "${DEPS_DIR}/${dir_root}" \
+      find ${DEPS_DIR}/${dir_root} \
           -xdev -follow -maxdepth ${find_maxdepth} \
           -type f "${find_names[@]}"
     done | sort -u))
@@ -107,14 +103,9 @@ process_content () {
   local f
   index="${package}-${type}"
   if [[ -z "${CONTENT[${index}]-}" ]]; then
-    for f in "${local_files[@]-}"; do
-      if [[ -z "$f" ]]; then
-        # Set the default value and then check it to prevent
-        # accessing potentially empty array
-        continue
-      fi
+    for f in ${local_files[@]-}; do
       # Find some copyright info in any file and break
-      if grep -E -i -wq "${ensure_pattern}" "${f}"; then
+      if egrep -i -wq "${ensure_pattern}" "${f}"; then
         CONTENT[${index}]="${f}"
         break
       fi
@@ -140,7 +131,6 @@ if ((${BASH_VERSINFO[0]}<4)); then
     echo "$ brew install md5sha1sum bash jq"
   fi
   echo
-  exit 9
 fi
 
 # This variable can be injected, as in the verify script.
@@ -157,17 +147,18 @@ declare -Ag CONTENT
 echo "================================================================================"
 echo "= Kubernetes licensed under: ="
 echo
-cat "${LICENSE_ROOT}/LICENSE"
+cat ${LICENSE_ROOT}/LICENSE
 echo
-echo "= LICENSE $(cat "${LICENSE_ROOT}/LICENSE" | md5sum | awk '{print $1}')"
+echo "= LICENSE $(cat ${LICENSE_ROOT}/LICENSE | md5sum | awk '{print $1}')"
 echo "================================================================================"
 ) > ${TMP_LICENSE_FILE}
 
 # Loop through every package in Godeps.json
-for PACKAGE in $(jq -r ".Deps[].ImportPath" < Godeps/Godeps.json | sort -f); do
-  process_content "${PACKAGE}" LICENSE
-  process_content "${PACKAGE}" COPYRIGHT
-  process_content "${PACKAGE}" COPYING
+for PACKAGE in $(cat Godeps/Godeps.json | \
+                 jq -r ".Deps[].ImportPath" | \
+                 sort -f); do
+  process_content ${PACKAGE} LICENSE
+  process_content ${PACKAGE} COPYRIGHT
 
   # display content
   echo
@@ -180,18 +171,16 @@ for PACKAGE in $(jq -r ".Deps[].ImportPath" < Godeps/Godeps.json | sort -f); do
       file="${CONTENT[${PACKAGE}-LICENSE]-}"
   elif [[ -n "${CONTENT[${PACKAGE}-COPYRIGHT]-}" ]]; then
       file="${CONTENT[${PACKAGE}-COPYRIGHT]-}"
-  elif [[ -n "${CONTENT[${PACKAGE}-COPYING]-}" ]]; then
-      file="${CONTENT[${PACKAGE}-COPYING]-}"
   fi
   if [[ -z "${file}" ]]; then
       cat > /dev/stderr << __EOF__
 No license could be found for ${PACKAGE} - aborting.
 
 Options:
-1. Check if the upstream repository has a newer version with LICENSE, COPYRIGHT and/or
-   COPYING files.
-2. Contact the author of the package to ensure there is a LICENSE, COPYRIGHT and/or
-   COPYING file present.
+1. Check if the upstream repository has a newer version with LICENSE and/or
+   COPYRIGHT files.
+2. Contact the author of the package to ensure there is a LICENSE and/or
+   COPYRIGHT file present.
 3. Do not use this package in Kubernetes.
 __EOF__
       exit 9
@@ -199,7 +188,7 @@ __EOF__
   cat "${file}"
 
   echo
-  echo "= ${file} $(cat "${file}" | md5sum | awk '{print $1}')"
+  echo "= ${file} $(cat ${file} | md5sum | awk '{print $1}')"
   echo "================================================================================"
   echo
 done >> ${TMP_LICENSE_FILE}

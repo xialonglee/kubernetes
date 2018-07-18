@@ -9,7 +9,6 @@ go_library(
         "sort.go",
         "sql.go",
     ],
-    importmap = "k8s.io/kubernetes/vendor/github.com/blang/semver",
     importpath = "github.com/blang/semver",
     visibility = ["//visibility:public"],
 )

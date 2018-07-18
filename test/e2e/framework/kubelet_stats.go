@@ -97,11 +97,10 @@ func getKubeletMetrics(c clientset.Interface, nodeName string) (metrics.KubeletM
 	return kubeletMetrics, nil
 }
 
-// GetDefaultKubeletLatencyMetrics calls GetKubeletLatencyMetrics with a set of default metricNames
-// identifying common latency metrics.
-// Note that the KubeletMetrics passed in should not contain subsystem prefix.
-func GetDefaultKubeletLatencyMetrics(ms metrics.KubeletMetrics) KubeletLatencyMetrics {
-	latencyMetricNames := sets.NewString(
+// GetKubeletLatencyMetrics gets all latency related kubelet metrics. Note that the KubeletMetrcis
+// passed in should not contain subsystem prefix.
+func GetKubeletLatencyMetrics(ms metrics.KubeletMetrics) KubeletLatencyMetrics {
+	latencyMethods := sets.NewString(
 		kubeletmetrics.PodWorkerLatencyKey,
 		kubeletmetrics.PodWorkerStartLatencyKey,
 		kubeletmetrics.PodStartLatencyKey,
@@ -110,15 +109,13 @@ func GetDefaultKubeletLatencyMetrics(ms metrics.KubeletMetrics) KubeletLatencyMe
 		kubeletmetrics.PodWorkerStartLatencyKey,
 		kubeletmetrics.PLEGRelistLatencyKey,
 	)
-	return GetKubeletLatencyMetrics(ms, latencyMetricNames)
+	return GetKubeletMetrics(ms, latencyMethods)
 }
 
-// GetKubeletLatencyMetrics filters ms to include only those contained in the metricNames set,
-// then constructs a KubeletLatencyMetrics list based on the samples associated with those metrics.
-func GetKubeletLatencyMetrics(ms metrics.KubeletMetrics, filterMetricNames sets.String) KubeletLatencyMetrics {
+func GetKubeletMetrics(ms metrics.KubeletMetrics, methods sets.String) KubeletLatencyMetrics {
 	var latencyMetrics KubeletLatencyMetrics
-	for name, samples := range ms {
-		if !filterMetricNames.Has(name) {
+	for method, samples := range ms {
+		if !methods.Has(method) {
 			continue
 		}
 		for _, sample := range samples {
@@ -134,7 +131,7 @@ func GetKubeletLatencyMetrics(ms metrics.KubeletMetrics, filterMetricNames sets.
 
 			latencyMetrics = append(latencyMetrics, KubeletLatencyMetric{
 				Operation: operation,
-				Method:    name,
+				Method:    method,
 				Quantile:  quantile,
 				Latency:   time.Duration(int64(latency)) * time.Microsecond,
 			})
@@ -268,7 +265,7 @@ func HighLatencyKubeletOperations(c clientset.Interface, threshold time.Duration
 	if err != nil {
 		return KubeletLatencyMetrics{}, err
 	}
-	latencyMetrics := GetDefaultKubeletLatencyMetrics(ms)
+	latencyMetrics := GetKubeletLatencyMetrics(ms)
 	sort.Sort(latencyMetrics)
 	var badMetrics KubeletLatencyMetrics
 	logFunc("\nLatency metrics for node %v", nodeName)
@@ -492,7 +489,7 @@ type usageDataPerContainer struct {
 }
 
 func GetKubeletHeapStats(c clientset.Interface, nodeName string) (string, error) {
-	client, err := NodeProxyRequest(c, nodeName, "debug/pprof/heap", ports.KubeletPort)
+	client, err := NodeProxyRequest(c, nodeName, "debug/pprof/heap")
 	if err != nil {
 		return "", err
 	}

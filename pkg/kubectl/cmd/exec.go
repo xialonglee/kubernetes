@@ -32,7 +32,6 @@ import (
 	coreclient "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/typed/core/internalversion"
 	"k8s.io/kubernetes/pkg/kubectl/cmd/templates"
 	cmdutil "k8s.io/kubernetes/pkg/kubectl/cmd/util"
-	"k8s.io/kubernetes/pkg/kubectl/genericclioptions"
 	"k8s.io/kubernetes/pkg/kubectl/util/i18n"
 	"k8s.io/kubernetes/pkg/kubectl/util/term"
 	"k8s.io/kubernetes/pkg/util/interrupt"
@@ -63,17 +62,18 @@ const (
 	execUsageStr = "expected 'exec POD_NAME COMMAND [ARG1] [ARG2] ... [ARGN]'.\nPOD_NAME and COMMAND are required arguments for the exec command"
 )
 
-func NewCmdExec(f cmdutil.Factory, streams genericclioptions.IOStreams) *cobra.Command {
+func NewCmdExec(f cmdutil.Factory, cmdIn io.Reader, cmdOut, cmdErr io.Writer) *cobra.Command {
 	options := &ExecOptions{
 		StreamOptions: StreamOptions{
-			IOStreams: streams,
+			In:  cmdIn,
+			Out: cmdOut,
+			Err: cmdErr,
 		},
 
 		Executor: &DefaultRemoteExecutor{},
 	}
 	cmd := &cobra.Command{
-		Use: "exec POD [-c CONTAINER] -- COMMAND [args...]",
-		DisableFlagsInUseLine: true,
+		Use:     "exec POD [-c CONTAINER] -- COMMAND [args...]",
 		Short:   i18n.T("Execute a command in a container"),
 		Long:    "Execute a command in a container.",
 		Example: exec_example,
@@ -84,11 +84,11 @@ func NewCmdExec(f cmdutil.Factory, streams genericclioptions.IOStreams) *cobra.C
 			cmdutil.CheckErr(options.Run())
 		},
 	}
-	cmd.Flags().StringVarP(&options.PodName, "pod", "p", options.PodName, "Pod name")
+	cmd.Flags().StringVarP(&options.PodName, "pod", "p", "", "Pod name")
 	// TODO support UID
-	cmd.Flags().StringVarP(&options.ContainerName, "container", "c", options.ContainerName, "Container name. If omitted, the first container in the pod will be chosen")
-	cmd.Flags().BoolVarP(&options.Stdin, "stdin", "i", options.Stdin, "Pass stdin to the container")
-	cmd.Flags().BoolVarP(&options.TTY, "tty", "t", options.TTY, "Stdin is a TTY")
+	cmd.Flags().StringVarP(&options.ContainerName, "container", "c", "", "Container name. If omitted, the first container in the pod will be chosen")
+	cmd.Flags().BoolVarP(&options.Stdin, "stdin", "i", false, "Pass stdin to the container")
+	cmd.Flags().BoolVarP(&options.TTY, "tty", "t", false, "Stdin is a TTY")
 	return cmd
 }
 
@@ -124,8 +124,9 @@ type StreamOptions struct {
 	Quiet bool
 	// InterruptParent, if set, is used to handle interrupts while attached
 	InterruptParent *interrupt.Handler
-
-	genericclioptions.IOStreams
+	In              io.Reader
+	Out             io.Writer
+	Err             io.Writer
 
 	// for testing
 	overrideStreams func() (io.ReadCloser, io.Writer, io.Writer)
@@ -153,7 +154,7 @@ func (p *ExecOptions) Complete(f cmdutil.Factory, cmd *cobra.Command, argsIn []s
 		return cmdutil.UsageErrorf(cmd, execUsageStr)
 	}
 	if len(p.PodName) != 0 {
-		printDeprecationWarning(p.ErrOut, "exec POD_NAME", "-p POD_NAME")
+		printDeprecationWarning("exec POD_NAME", "-p POD_NAME")
 		if len(argsIn) < 1 {
 			return cmdutil.UsageErrorf(cmd, execUsageStr)
 		}
@@ -166,7 +167,7 @@ func (p *ExecOptions) Complete(f cmdutil.Factory, cmd *cobra.Command, argsIn []s
 		}
 	}
 
-	namespace, _, err := f.ToRawKubeConfigLoader().Namespace()
+	namespace, _, err := f.DefaultNamespace()
 	if err != nil {
 		return err
 	}
@@ -180,7 +181,7 @@ func (p *ExecOptions) Complete(f cmdutil.Factory, cmd *cobra.Command, argsIn []s
 		p.SuggestedCmdUsage = fmt.Sprintf("Use '%s describe pod/%s -n %s' to see all of the containers in this pod.", p.FullCmdName, p.PodName, p.Namespace)
 	}
 
-	config, err := f.ToRESTConfig()
+	config, err := f.ClientConfig()
 	if err != nil {
 		return err
 	}
@@ -203,7 +204,7 @@ func (p *ExecOptions) Validate() error {
 	if len(p.Command) == 0 {
 		return fmt.Errorf("you must specify at least one command for the container")
 	}
-	if p.Out == nil || p.ErrOut == nil {
+	if p.Out == nil || p.Err == nil {
 		return fmt.Errorf("both output and error output must be provided")
 	}
 	if p.Executor == nil || p.PodClient == nil || p.Config == nil {
@@ -238,8 +239,8 @@ func (o *StreamOptions) setupTTY() term.TTY {
 	if !o.isTerminalIn(t) {
 		o.TTY = false
 
-		if o.ErrOut != nil {
-			fmt.Fprintln(o.ErrOut, "Unable to use a TTY - input is not a terminal or the right kind of file")
+		if o.Err != nil {
+			fmt.Fprintln(o.Err, "Unable to use a TTY - input is not a terminal or the right kind of file")
 		}
 
 		return t
@@ -282,7 +283,7 @@ func (p *ExecOptions) Run() error {
 			if len(p.SuggestedCmdUsage) > 0 {
 				usageString = fmt.Sprintf("%s\n%s", usageString, p.SuggestedCmdUsage)
 			}
-			fmt.Fprintf(p.ErrOut, "%s\n", usageString)
+			fmt.Fprintf(p.Err, "%s\n", usageString)
 		}
 		containerName = pod.Spec.Containers[0].Name
 	}
@@ -297,7 +298,7 @@ func (p *ExecOptions) Run() error {
 
 		// unset p.Err if it was previously set because both stdout and stderr go over p.Out when tty is
 		// true
-		p.ErrOut = nil
+		p.Err = nil
 	}
 
 	fn := func() error {
@@ -318,11 +319,11 @@ func (p *ExecOptions) Run() error {
 			Command:   p.Command,
 			Stdin:     p.Stdin,
 			Stdout:    p.Out != nil,
-			Stderr:    p.ErrOut != nil,
+			Stderr:    p.Err != nil,
 			TTY:       t.Raw,
 		}, legacyscheme.ParameterCodec)
 
-		return p.Executor.Execute("POST", req.URL(), p.Config, p.In, p.Out, p.ErrOut, t.Raw, sizeQueue)
+		return p.Executor.Execute("POST", req.URL(), p.Config, p.In, p.Out, p.Err, t.Raw, sizeQueue)
 	}
 
 	if err := t.Safe(fn); err != nil {
