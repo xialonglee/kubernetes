@@ -342,6 +342,7 @@ type ListOptions struct {
 	// +optional
 	ResourceVersion string `json:"resourceVersion,omitempty" protobuf:"bytes,4,opt,name=resourceVersion"`
 	// Timeout for the list/watch call.
+	// This limits the duration of the call, regardless of any activity or inactivity.
 	// +optional
 	TimeoutSeconds *int64 `json:"timeoutSeconds,omitempty" protobuf:"varint,5,opt,name=timeoutSeconds"`
 
@@ -452,6 +453,45 @@ type DeleteOptions struct {
 	// foreground.
 	// +optional
 	PropagationPolicy *DeletionPropagation `json:"propagationPolicy,omitempty" protobuf:"varint,4,opt,name=propagationPolicy"`
+
+	// When present, indicates that modifications should not be
+	// persisted. An invalid or unrecognized dryRun directive will
+	// result in a BadRequest response and no further processing of
+	// the request.
+	// +optional
+	DryRun []string `json:"dryRun,omitempty" protobuf:"bytes,5,rep,name=dryRun"`
+}
+
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+
+// CreateOptions may be provided when creating an API object.
+type CreateOptions struct {
+	TypeMeta `json:",inline"`
+
+	// When present, indicates that modifications should not be
+	// persisted. An invalid or unrecognized dryRun directive will
+	// result in a BadRequest response and no further processing of
+	// the request.
+	// +optional
+	DryRun []string `json:"dryRun,omitempty" protobuf:"bytes,1,rep,name=dryRun"`
+
+	// If IncludeUninitialized is specified, the object may be
+	// returned without completing initialization.
+	IncludeUninitialized bool `json:"includeUninitialized,omitempty" protobuf:"varint,2,opt,name=includeUninitialized"`
+}
+
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+
+// UpdateOptions may be provided when updating an API object.
+type UpdateOptions struct {
+	TypeMeta `json:",inline"`
+
+	// When present, indicates that modifications should not be
+	// persisted. An invalid or unrecognized dryRun directive will
+	// result in a BadRequest response and no further processing of
+	// the request.
+	// +optional
+	DryRun []string `json:"dryRun,omitempty" protobuf:"bytes,1,rep,name=dryRun"`
 }
 
 // Preconditions must be fulfilled before an operation (update, delete, etc.) is carried out.
@@ -651,6 +691,18 @@ const (
 	// can only be created. API calls that return MethodNotAllowed can never succeed.
 	StatusReasonMethodNotAllowed StatusReason = "MethodNotAllowed"
 
+	// StatusReasonNotAcceptable means that the accept types indicated by the client were not acceptable
+	// to the server - for instance, attempting to receive protobuf for a resource that supports only json and yaml.
+	// API calls that return NotAcceptable can never succeed.
+	// Status code 406
+	StatusReasonNotAcceptable StatusReason = "NotAcceptable"
+
+	// StatusReasonUnsupportedMediaType means that the content type sent by the client is not acceptable
+	// to the server - for instance, attempting to send protobuf for a resource that supports only json and yaml.
+	// API calls that return UnsupportedMediaType can never succeed.
+	// Status code 415
+	StatusReasonUnsupportedMediaType StatusReason = "UnsupportedMediaType"
+
 	// StatusReasonInternalError indicates that an internal error occurred, it is unexpected
 	// and the outcome of the call is unknown.
 	// Details (optional):
@@ -786,7 +838,8 @@ type APIGroup struct {
 	// The server returns only those CIDRs that it thinks that the client can match.
 	// For example: the master will return an internal IP CIDR only, if the client reaches the server using an internal IP.
 	// Server looks at X-Forwarded-For header or X-Real-Ip header or request.RemoteAddr (in that order) to get the client IP.
-	ServerAddressByClientCIDRs []ServerAddressByClientCIDR `json:"serverAddressByClientCIDRs" protobuf:"bytes,4,rep,name=serverAddressByClientCIDRs"`
+	// +optional
+	ServerAddressByClientCIDRs []ServerAddressByClientCIDR `json:"serverAddressByClientCIDRs,omitempty" protobuf:"bytes,4,rep,name=serverAddressByClientCIDRs"`
 }
 
 // ServerAddressByClientCIDR helps the client to determine the server address that they should use, depending on the clientCIDR that they match.

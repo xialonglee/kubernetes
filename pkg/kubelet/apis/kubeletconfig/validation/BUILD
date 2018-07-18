@@ -8,13 +8,19 @@ load(
 
 go_library(
     name = "go_default_library",
-    srcs = ["validation.go"],
+    srcs = [
+        "validation.go",
+        "validation_others.go",
+        "validation_windows.go",
+    ],
     importpath = "k8s.io/kubernetes/pkg/kubelet/apis/kubeletconfig/validation",
     deps = [
+        "//pkg/features:go_default_library",
         "//pkg/kubelet/apis/kubeletconfig:go_default_library",
-        "//pkg/kubelet/cm:go_default_library",
-        "//vendor/k8s.io/apimachinery/pkg/util/errors:go_default_library",
-        "//vendor/k8s.io/apimachinery/pkg/util/validation:go_default_library",
+        "//pkg/kubelet/types:go_default_library",
+        "//staging/src/k8s.io/apimachinery/pkg/util/errors:go_default_library",
+        "//staging/src/k8s.io/apimachinery/pkg/util/validation:go_default_library",
+        "//staging/src/k8s.io/apiserver/pkg/util/feature:go_default_library",
     ],
 )
 
@@ -34,10 +40,9 @@ filegroup(
 go_test(
     name = "go_default_test",
     srcs = ["validation_test.go"],
-    importpath = "k8s.io/kubernetes/pkg/kubelet/apis/kubeletconfig/validation",
-    library = ":go_default_library",
+    embed = [":go_default_library"],
     deps = [
         "//pkg/kubelet/apis/kubeletconfig:go_default_library",
-        "//vendor/k8s.io/apimachinery/pkg/util/errors:go_default_library",
+        "//staging/src/k8s.io/apimachinery/pkg/util/errors:go_default_library",
     ],
 )

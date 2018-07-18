@@ -27,13 +27,12 @@ import (
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 
-	runtimeapi "k8s.io/kubernetes/pkg/kubelet/apis/cri/v1alpha1/runtime"
+	runtimeapi "k8s.io/kubernetes/pkg/kubelet/apis/cri/runtime/v1alpha2"
 	"k8s.io/kubernetes/pkg/kubelet/cm/cpumanager/state"
 	"k8s.io/kubernetes/pkg/kubelet/cm/cpumanager/topology"
 	"k8s.io/kubernetes/pkg/kubelet/cm/cpuset"
 	kubecontainer "k8s.io/kubernetes/pkg/kubelet/container"
 	"k8s.io/kubernetes/pkg/kubelet/status"
-	"path"
 )
 
 // ActivePodsFunc is a function that returns a list of pods to reconcile.
@@ -45,8 +44,8 @@ type runtimeService interface {
 
 type policyName string
 
-// CPUManagerStateFileName is the name file name where cpu manager stores it's state
-const CPUManagerStateFileName = "cpu_manager_state"
+// cpuManagerStateFileName is the name file name where cpu manager stores it's state
+const cpuManagerStateFileName = "cpu_manager_state"
 
 // Manager interface provides methods for Kubelet to manage pod cpus.
 type Manager interface {
@@ -98,13 +97,7 @@ type manager struct {
 var _ Manager = &manager{}
 
 // NewManager creates new cpu manager based on provided policy
-func NewManager(
-	cpuPolicyName string,
-	reconcilePeriod time.Duration,
-	machineInfo *cadvisorapi.MachineInfo,
-	nodeAllocatableReservation v1.ResourceList,
-	stateFileDirecory string,
-) (Manager, error) {
+func NewManager(cpuPolicyName string, reconcilePeriod time.Duration, machineInfo *cadvisorapi.MachineInfo, nodeAllocatableReservation v1.ResourceList, stateFileDirectory string) (Manager, error) {
 	var policy Policy
 
 	switch policyName(cpuPolicyName) {
@@ -120,18 +113,16 @@ func NewManager(
 		glog.Infof("[cpumanager] detected CPU topology: %v", topo)
 		reservedCPUs, ok := nodeAllocatableReservation[v1.ResourceCPU]
 		if !ok {
-			// The static policy cannot initialize without this information. Panic!
-			panic("[cpumanager] unable to determine reserved CPU resources for static policy")
+			// The static policy cannot initialize without this information.
+			return nil, fmt.Errorf("[cpumanager] unable to determine reserved CPU resources for static policy")
 		}
 		if reservedCPUs.IsZero() {
-			// Panic!
-			//
 			// The static policy requires this to be nonzero. Zero CPU reservation
 			// would allow the shared pool to be completely exhausted. At that point
 			// either we would violate our guarantee of exclusivity or need to evict
 			// any pod that has at least one container that requires zero CPUs.
 			// See the comments in policy_static.go for more details.
-			panic("[cpumanager] the static policy requires systemreserved.cpu + kubereserved.cpu to be greater than zero")
+			return nil, fmt.Errorf("[cpumanager] the static policy requires systemreserved.cpu + kubereserved.cpu to be greater than zero")
 		}
 
 		// Take the ceiling of the reservation, since fractional CPUs cannot be
@@ -145,9 +136,10 @@ func NewManager(
 		policy = NewNonePolicy()
 	}
 
-	stateImpl := state.NewFileState(
-		path.Join(stateFileDirecory, CPUManagerStateFileName),
-		policy.Name())
+	stateImpl, err := state.NewCheckpointState(stateFileDirectory, cpuManagerStateFileName, policy.Name())
+	if err != nil {
+		return nil, fmt.Errorf("could not initialize checkpoint manager: %v", err)
+	}
 
 	manager := &manager{
 		policy:                     policy,

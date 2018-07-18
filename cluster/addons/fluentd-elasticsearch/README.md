@@ -19,15 +19,16 @@ a Deployment, but allows for maintaining state on storage volumes.
 
 ### Security
 
-Elasticsearch has capabilities to enable authorization using the
-[X-Pack plugin][xPack]. See configuration parameter `xpack.security.enabled`
-in Elasticsearch and Kibana configurations. It can also be set via the
-`XPACK_SECURITY_ENABLED` env variable. After enabling the feature,
-follow [official documentation][setupCreds] to set up credentials in
-Elasticsearch and Kibana. Don't forget to propagate those credentials also to
-Fluentd in its [configuration][fluentdCreds], using for example
-[environment variables][fluentdEnvVar]. You can utilize [ConfigMaps][configMap]
-and [Secrets][secret] to store credentials in the Kubernetes apiserver.
+Elasticsearch has capabilities to enable authorization using the [X-Pack
+plugin][xPack]. For the sake of simplicity this example uses the fully open
+source prebuild images from elastic that do not contain the X-Pack plugin. If
+you need these features, please consider building the images from either the
+"basic" or "platinum" version. After enabling these features, follow [official
+documentation][setupCreds] to set up credentials in Elasticsearch and Kibana.
+Don't forget to propagate those credentials also to Fluentd in its
+[configuration][fluentdCreds], using for example [environment
+variables][fluentdEnvVar]. You can utilize [ConfigMaps][configMap] and
+[Secrets][secret] to store credentials in the Kubernetes apiserver.
 
 ### Initialization
 
@@ -71,7 +72,7 @@ avoid Fluentd pods scheduling there.
 [setupCreds]: https://www.elastic.co/guide/en/x-pack/current/setting-up-authentication.html#reset-built-in-user-passwords
 [fluentdCreds]: https://github.com/uken/fluent-plugin-elasticsearch#user-password-path-scheme-ssl_verify
 [fluentdEnvVar]: https://docs.fluentd.org/v0.12/articles/faq#how-can-i-use-environment-variables-to-configure-parameters-dynamically
-[configMap]: https://kubernetes.io/docs/tasks/configure-pod-container/configmap/
+[configMap]: https://kubernetes.io/docs/tasks/configure-pod-container/configure-pod-configmap/
 [secret]: https://kubernetes.io/docs/concepts/configuration/secret/
 [statefulSet]: https://kubernetes.io/docs/concepts/workloads/controllers/statefulset
 [initContainer]: https://kubernetes.io/docs/concepts/workloads/pods/init-containers/

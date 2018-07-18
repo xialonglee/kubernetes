@@ -25,7 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/kubernetes/pkg/api/legacyscheme"
 	"k8s.io/kubernetes/pkg/printers"
-	metricsapi "k8s.io/metrics/pkg/apis/metrics/v1alpha1"
+	metricsapi "k8s.io/metrics/pkg/apis/metrics"
 )
 
 var (
@@ -76,6 +76,12 @@ func (printer *TopCmdPrinter) PrintNodeMetrics(metrics []metricsapi.NodeMetrics,
 			Metrics:   usage,
 			Available: availableResources[m.Name],
 		})
+		delete(availableResources, m.Name)
+	}
+
+	// print lines for nodes of which the metrics is unreachable.
+	for nodeName := range availableResources {
+		printMissingMetricsNodeLine(w, nodeName)
 	}
 	return nil
 }
@@ -168,6 +174,18 @@ func printSinglePodMetrics(out io.Writer, m *metricsapi.PodMetrics, printContain
 func printMetricsLine(out io.Writer, metrics *ResourceMetricsInfo) {
 	printValue(out, metrics.Name)
 	printAllResourceUsages(out, metrics)
+	fmt.Fprint(out, "\n")
+}
+
+func printMissingMetricsNodeLine(out io.Writer, nodeName string) {
+	printValue(out, nodeName)
+	unknownMetricsStatus := "<unknown>"
+	for i := 0; i < len(MeasuredResources); i++ {
+		printValue(out, unknownMetricsStatus)
+		printValue(out, "\t")
+		printValue(out, unknownMetricsStatus)
+		printValue(out, "\t")
+	}
 	fmt.Fprint(out, "\n")
 }
 
